@@ -1,0 +1,152 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {uid}
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - role: string (admin, buyer) (required)
+    //   - displayName: string
+    //   - photoURL: string
+    //
+    // Collection: products
+    // Document ID: {productId}
+    // Fields:
+    //   - name: string (required)
+    //   - category: string (required)
+    //   - description: string
+    //   - price: number (required)
+    //   - stock: number (required)
+    //   - sold: number
+    //   - imageURL: string
+    //   - createdAt: timestamp
+    //
+    // Collection: orders
+    // Document ID: {orderId}
+    // Fields:
+    //   - buyerId: string (required)
+    //   - items: list (required)
+    //   - totalAmount: number (required)
+    //   - status: string (pending, paid, shipped, delivered) (required)
+    //   - createdAt: timestamp
+    //
+    // Collection: chats
+    // Document ID: {chatId}
+    // Fields:
+    //   - senderId: string (required)
+    //   - receiverId: string (required)
+    //   - text: string (required)
+    //   - createdAt: timestamp
+    //
+    // Collection: notifications
+    // Document ID: {notificationId}
+    // Fields:
+    //   - userId: string (required)
+    //   - title: string (required)
+    //   - message: string (required)
+    //   - read: bool (required)
+    //   - createdAt: timestamp
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email.toLowerCase().trim() == "aprimuhamadtoha@gmail.com");
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role']) &&
+             data.uid is string &&
+             data.email is string &&
+             data.role in ['admin', 'buyer'];
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(['name', 'category', 'price', 'stock']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.category is string &&
+             data.price is number && data.price >= 0 &&
+             data.stock is number && data.stock >= 0 &&
+             (!('description' in data) || data.description is string) &&
+             (!('imageURL' in data) || data.imageURL is string);
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['buyerId', 'items', 'totalAmount', 'status']) &&
+             data.buyerId is string &&
+             data.items is list &&
+             data.totalAmount is number && data.totalAmount >= 0 &&
+             data.status in ['pending', 'paid', 'shipped', 'delivered'];
+    }
+
+    function isValidChat(data) {
+      return data.keys().hasAll(['senderId', 'receiverId', 'text']) &&
+             data.senderId is string &&
+             data.receiverId is string &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 5000;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['userId', 'title', 'message', 'read']) &&
+             data.userId is string &&
+             data.title is string &&
+             data.message is string &&
+             data.read is bool;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == 'buyer';
+      allow update: if isAdmin() || (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role);
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.buyerId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.buyerId == request.auth.uid && isValidOrder(request.resource.data);
+      allow update: if isAdmin() && isValidOrder(request.resource.data);
+    }
+
+    match /chats/{chatId} {
+      allow read: if isAuthenticated() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.senderId == request.auth.uid && isValidChat(request.resource.data);
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAdmin() && isValidNotification(request.resource.data);
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid && 
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if true;
+    }
+  }
+}
