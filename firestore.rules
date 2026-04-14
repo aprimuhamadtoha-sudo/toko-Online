@@ -119,6 +119,13 @@ service cloud.firestore {
              data.read is bool;
     }
 
+    function isValidVisitor(data) {
+      return data.keys().hasAll(['email', 'name', 'timestamp']) &&
+             data.email is string &&
+             data.name is string &&
+             data.timestamp is string;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -155,6 +162,12 @@ service cloud.firestore {
     match /settings/{settingId} {
       allow read: if true;
       allow write: if true;
+    }
+
+    match /visitors/{visitorId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated() && isValidVisitor(request.resource.data);
+      allow update: if isAdmin();
     }
   }
 }

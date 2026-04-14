@@ -4,6 +4,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { Toaster } from './components/ui/sonner';
 import Navbar from './components/Navbar';
+import { db } from './lib/firebase';
+import { collection, addDoc, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 import Dashboard from './pages/Dashboard';
 import Store from './pages/Store';
 import ProductDetail from './pages/ProductDetail';
@@ -22,16 +24,31 @@ const ProtectedRoute = ({ children, adminOnly = false }: { children: React.React
 
   useEffect(() => {
     if (user && !loading) {
-      // Log visitor to Google Sheets
-      fetch('/api/log-visitor', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: user.email,
-          name: profile?.displayName || user.displayName || 'Anonymous',
-          timestamp: new Date().toLocaleString('id-ID'),
-        }),
-      }).catch(console.error);
+      // Log visitor to Firestore
+      const logVisitor = async () => {
+        try {
+          const visitorsRef = collection(db, 'visitors');
+          const q = query(visitorsRef, where('email', '==', user.email));
+          const querySnapshot = await getDocs(q);
+          
+          if (querySnapshot.empty) {
+            await addDoc(visitorsRef, {
+              email: user.email,
+              name: profile?.displayName || user.displayName || 'Anonymous',
+              timestamp: new Date().toLocaleString('id-ID'),
+              lastSeen: new Date().toLocaleString('id-ID'),
+            });
+          } else {
+            const visitorDoc = querySnapshot.docs[0];
+            await updateDoc(doc(db, 'visitors', visitorDoc.id), {
+              lastSeen: new Date().toLocaleString('id-ID'),
+            });
+          }
+        } catch (error) {
+          console.error('Error logging visitor to Firestore:', error);
+        }
+      };
+      logVisitor();
     }
   }, [user, loading, profile]);
 

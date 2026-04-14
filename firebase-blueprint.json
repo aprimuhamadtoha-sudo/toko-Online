@@ -82,6 +82,18 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "title", "message", "read"]
+    },
+    "Visitor": {
+      "title": "Visitor",
+      "description": "Visitor log entry",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "lastSeen": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "name", "timestamp"]
     }
   },
   "firestore": {
@@ -104,6 +116,10 @@
     "/notifications/{notificationId}": {
       "schema": "Notification",
       "description": "User notifications"
+    },
+    "/visitors/{visitorId}": {
+      "schema": "Visitor",
+      "description": "Visitor logs"
     }
   }
 }
