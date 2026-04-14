@@ -51,7 +51,8 @@ export default function Cart() {
           productId: item.id,
           name: item.name,
           quantity: item.quantity,
-          price: item.price
+          price: item.price,
+          purchasePrice: item.purchasePrice || 0
         })),
         totalAmount: total,
         status: 'pending',

@@ -18,9 +18,12 @@ export default function Login() {
       await signInWithPopup(auth, provider);
       toast.success('Login berhasil!');
       navigate('/');
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      toast.error('Gagal login dengan Google');
+      const errorMessage = error.code === 'auth/unauthorized-domain' 
+        ? 'Domain ini belum diizinkan di Firebase Console.' 
+        : error.message || 'Gagal login dengan Google';
+      toast.error(`Gagal login: ${errorMessage}`);
     }
   };
 

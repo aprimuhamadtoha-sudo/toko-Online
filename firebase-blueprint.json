@@ -23,6 +23,7 @@
         "category": { "type": "string" },
         "description": { "type": "string" },
         "price": { "type": "number" },
+        "purchasePrice": { "type": "number" },
         "stock": { "type": "number" },
         "sold": { "type": "number" },
         "imageURL": { "type": "string" },

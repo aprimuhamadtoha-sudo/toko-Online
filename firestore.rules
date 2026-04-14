@@ -90,6 +90,7 @@ service cloud.firestore {
              data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
              data.category is string &&
              data.price is number && data.price >= 0 &&
+             (!('purchasePrice' in data) || (data.purchasePrice is number && data.purchasePrice >= 0)) &&
              data.stock is number && data.stock >= 0 &&
              (!('description' in data) || data.description is string) &&
              (!('imageURL' in data) || data.imageURL is string);

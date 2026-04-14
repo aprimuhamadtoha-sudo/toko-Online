@@ -14,6 +14,7 @@ interface Product {
   name: string;
   category: string;
   price: number;
+  purchasePrice: number;
   stock: number;
   sold: number;
   description: string;
@@ -28,6 +29,7 @@ export default function AdminProducts() {
     name: '',
     category: '',
     price: 0,
+    purchasePrice: 0,
     stock: 0,
     description: '',
     imageURL: ''
@@ -60,7 +62,7 @@ export default function AdminProducts() {
       }
       setIsAddOpen(false);
       setEditingProduct(null);
-      setFormData({ name: '', category: '', price: 0, stock: 0, description: '', imageURL: '' });
+      setFormData({ name: '', category: '', price: 0, purchasePrice: 0, stock: 0, description: '', imageURL: '' });
     } catch (error) {
       console.error('Error saving product:', error);
       toast.error('Gagal menyimpan produk: ' + (error instanceof Error ? error.message : 'Unknown error'));
@@ -85,7 +87,7 @@ export default function AdminProducts() {
           <DialogTrigger asChild>
             <Button onClick={() => {
               setEditingProduct(null);
-              setFormData({ name: '', category: '', price: 0, stock: 0, description: '', imageURL: '' });
+              setFormData({ name: '', category: '', price: 0, purchasePrice: 0, stock: 0, description: '', imageURL: '' });
             }}>
               <Plus className="w-4 h-4 mr-2" />
               Tambah Produk
@@ -106,13 +108,19 @@ export default function AdminProducts() {
                   <Input id="category" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="price">Harga (Rp)</Label>
-                  <Input id="price" type="number" value={formData.price} onChange={e => setFormData({...formData, price: Number(e.target.value)})} />
+                  <Label htmlFor="stock">Stok</Label>
+                  <Input id="stock" type="number" value={formData.stock} onChange={e => setFormData({...formData, stock: Number(e.target.value)})} />
                 </div>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="stock">Stok</Label>
-                <Input id="stock" type="number" value={formData.stock} onChange={e => setFormData({...formData, stock: Number(e.target.value)})} />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="purchasePrice">Harga Beli (Rp)</Label>
+                  <Input id="purchasePrice" type="number" value={formData.purchasePrice} onChange={e => setFormData({...formData, purchasePrice: Number(e.target.value)})} />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="price">Harga Jual (Rp)</Label>
+                  <Input id="price" type="number" value={formData.price} onChange={e => setFormData({...formData, price: Number(e.target.value)})} />
+                </div>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="imageURL">URL Gambar</Label>
@@ -142,7 +150,8 @@ export default function AdminProducts() {
             <TableRow>
               <TableHead>Produk</TableHead>
               <TableHead>Kategori</TableHead>
-              <TableHead>Harga</TableHead>
+              <TableHead>Harga Beli</TableHead>
+              <TableHead>Harga Jual</TableHead>
               <TableHead>Stok</TableHead>
               <TableHead>Terjual</TableHead>
               <TableHead className="text-right">Aksi</TableHead>
@@ -160,6 +169,7 @@ export default function AdminProducts() {
                   </div>
                 </TableCell>
                 <TableCell>{product.category}</TableCell>
+                <TableCell>Rp {(product.purchasePrice || 0).toLocaleString()}</TableCell>
                 <TableCell>Rp {product.price.toLocaleString()}</TableCell>
                 <TableCell>{product.stock}</TableCell>
                 <TableCell>{product.sold}</TableCell>
@@ -171,6 +181,7 @@ export default function AdminProducts() {
                         name: product.name,
                         category: product.category,
                         price: product.price,
+                        purchasePrice: product.purchasePrice || 0,
                         stock: product.stock,
                         description: product.description,
                         imageURL: product.imageURL
