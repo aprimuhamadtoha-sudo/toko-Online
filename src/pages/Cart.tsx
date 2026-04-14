@@ -60,15 +60,6 @@ export default function Cart() {
 
       await addDoc(collection(db, 'orders'), orderData);
 
-      // Update stock and sold count
-      for (const item of items) {
-        const productRef = doc(db, 'products', item.id);
-        await updateDoc(productRef, {
-          stock: increment(-item.quantity),
-          sold: increment(item.quantity)
-        });
-      }
-
       // Create notification for admin
       await addDoc(collection(db, 'notifications'), {
         userId: 'ApriMuhamadToha@gmail.com', // Admin email or UID

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { db, auth } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment } from 'firebase/firestore';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -25,7 +25,36 @@ export default function AdminOrders() {
 
   const updateStatus = async (orderId: string, newStatus: string) => {
     try {
+      const order = orders.find(o => o.id === orderId);
+      if (!order) return;
+
       const orderRef = doc(db, 'orders', orderId);
+      
+      const confirmedStatuses = ['diterima', 'shipped', 'delivered'];
+      const isNewStatusConfirmed = confirmedStatuses.includes(newStatus);
+      const isOldStatusConfirmed = confirmedStatuses.includes(order.status);
+
+      // Update stock if status changes to a confirmed state from an unconfirmed one
+      if (isNewStatusConfirmed && !isOldStatusConfirmed) {
+        for (const item of order.items) {
+          const productRef = doc(db, 'products', item.productId);
+          await updateDoc(productRef, {
+            stock: increment(-item.quantity),
+            sold: increment(item.quantity)
+          });
+        }
+      }
+      // Return stock if status changes FROM a confirmed state to an unconfirmed one (e.g. 'ditolak' or 'pending')
+      else if (!isNewStatusConfirmed && isOldStatusConfirmed) {
+        for (const item of order.items) {
+          const productRef = doc(db, 'products', item.productId);
+          await updateDoc(productRef, {
+            stock: increment(item.quantity),
+            sold: increment(-item.quantity)
+          });
+        }
+      }
+
       await updateDoc(orderRef, { status: newStatus });
       toast.success('Status pesanan diperbarui');
     } catch (error: any) {
