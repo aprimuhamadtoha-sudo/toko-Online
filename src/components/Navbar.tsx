@@ -17,7 +17,7 @@ export default function Navbar() {
   const [cartCount, setCartCount] = useState(0);
   const [orderCount, setOrderCount] = useState(0);
   const [chatCount, setChatCount] = useState(0);
-  const [storeSettings, setStoreSettings] = useState({ name: 'SalesApp', logoURL: '' });
+  const [storeSettings, setStoreSettings] = useState({ name: 'Jasa Las', logoURL: '' });
 
   useEffect(() => {
     if (!user) return;

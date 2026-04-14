@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 
 export default function AdminSettings() {
-  const [settings, setSettings] = useState({ name: '', address: '', logoURL: '' });
+  const [settings, setSettings] = useState({ name: 'Jasa Las', address: '', logoURL: '' });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

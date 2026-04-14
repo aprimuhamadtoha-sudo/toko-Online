@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Pencil, Trash2, Package } from 'lucide-react';
+import { Plus, Pencil, Trash2, Package, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Product {
@@ -76,6 +76,23 @@ export default function AdminProducts() {
     }
   };
 
+  const handleResetSold = async () => {
+    if (!confirm('Apakah Anda yakin ingin menetralkan (reset) semua statistik produk terjual? Tindakan ini tidak dapat dibatalkan.')) return;
+    
+    try {
+      const batch = writeBatch(db);
+      products.forEach((product) => {
+        const productRef = doc(db, 'products', product.id);
+        batch.update(productRef, { sold: 0 });
+      });
+      await batch.commit();
+      toast.success('Statistik penjualan telah dinetralkan');
+    } catch (error) {
+      console.error('Error resetting sales:', error);
+      toast.error('Gagal menetralkan statistik');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -83,7 +100,12 @@ export default function AdminProducts() {
           <h1 className="text-3xl font-bold tracking-tight">Kelola Produk</h1>
           <p className="text-muted-foreground">Tambah, edit, atau hapus produk dari katalog</p>
         </div>
-        <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleResetSold} className="text-orange-600 border-orange-200 hover:bg-orange-50">
+            <RotateCcw className="w-4 h-4 mr-2" />
+            Netralkan Produk
+          </Button>
+          <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
           <DialogTrigger asChild>
             <Button onClick={() => {
               setEditingProduct(null);
@@ -143,8 +165,9 @@ export default function AdminProducts() {
           </DialogContent>
         </Dialog>
       </div>
+    </div>
 
-      <div className="border rounded-lg overflow-hidden">
+    <div className="border rounded-lg overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
