@@ -14,7 +14,34 @@ export default function Navbar() {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [cartCount, setCartCount] = useState(0);
+  const [orderCount, setOrderCount] = useState(0);
+  const [chatCount, setChatCount] = useState(0);
   const [storeSettings, setStoreSettings] = useState({ name: 'SalesApp', logoURL: '' });
+
+  useEffect(() => {
+    if (!user) return;
+    
+    const unsubOrders = onSnapshot(query(collection(db, 'orders'), where('buyerId', '==', user.uid), where('status', '==', 'pending')), (snap) => {
+      setOrderCount(snap.size);
+    });
+
+    const unsubChats = onSnapshot(query(collection(db, 'chats'), where('receiverId', '==', user.uid), where('read', '==', false)), (snap) => {
+      setChatCount(snap.size);
+    });
+
+    return () => { unsubOrders(); unsubChats(); };
+  }, [user]);
+
+  useEffect(() => {
+    const updateCartCount = () => {
+      const cart = JSON.parse(localStorage.getItem('cart') || '[]');
+      setCartCount(cart.reduce((acc: number, item: any) => acc + item.quantity, 0));
+    };
+    updateCartCount();
+    window.addEventListener('storage', updateCartCount);
+    return () => window.removeEventListener('storage', updateCartCount);
+  }, []);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -53,31 +80,46 @@ export default function Navbar() {
       </Link>
       {user && (
         <>
-          <Link to="/orders" className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors">
+          <Link to="/orders" className="flex items-center gap-2 text-sm font-medium hover:text-blue-200 transition-colors relative">
             <Package className="w-4 h-4" />
             Pesanan
+            {orderCount > 0 && (
+              <Badge className="absolute -top-2 -left-2 px-1 py-0 text-[10px] min-w-[16px] h-[16px] flex items-center justify-center bg-red-500 text-white border-none">
+                {orderCount}
+              </Badge>
+            )}
           </Link>
-          <Link to="/chat" className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors">
+          <Link to="/chat" className="flex items-center gap-2 text-sm font-medium hover:text-blue-200 transition-colors relative">
             <MessageSquare className="w-4 h-4" />
             Chat
+            {chatCount > 0 && (
+              <Badge className="absolute -top-2 -left-2 px-1 py-0 text-[10px] min-w-[16px] h-[16px] flex items-center justify-center bg-red-500 text-white border-none">
+                {chatCount}
+              </Badge>
+            )}
           </Link>
-          <Link to="/cart" className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors">
+          <Link to="/cart" className="flex items-center gap-2 text-sm font-medium hover:text-blue-200 transition-colors relative">
             <ShoppingCart className="w-4 h-4" />
             Keranjang
+            {cartCount > 0 && (
+              <Badge className="absolute -top-2 -left-2 px-1 py-0 text-[10px] min-w-[16px] h-[16px] flex items-center justify-center bg-red-500 text-white border-none">
+                {cartCount}
+              </Badge>
+            )}
           </Link>
         </>
       )}
       {isAdmin && (
         <>
-          <Link to="/admin" className="flex items-center gap-2 text-sm font-bold text-primary hover:opacity-80 transition-all bg-primary/10 px-3 py-1.5 rounded-full border border-primary/20">
+          <Link to="/admin" className="flex items-center gap-2 text-sm font-bold text-white hover:opacity-90 transition-all bg-blue-500 px-3 py-1.5 rounded-full border border-blue-400 shadow-sm">
             <LayoutDashboard className="w-4 h-4" />
             Admin Dashboard
           </Link>
-          <Link to="/admin/visitors" className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
+          <Link to="/admin/visitors" className="flex items-center gap-2 text-sm font-medium text-white hover:text-blue-200 transition-colors">
             <Users className="w-4 h-4" />
             Pengunjung
           </Link>
-          <Link to="/admin/settings" className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
+          <Link to="/admin/settings" className="flex items-center gap-2 text-sm font-medium text-white hover:text-blue-200 transition-colors">
             <Package className="w-4 h-4" />
             Pengaturan
           </Link>
@@ -87,7 +129,7 @@ export default function Navbar() {
   );
 
   return (
-    <nav className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <nav className="sticky top-0 z-50 w-full border-b bg-primary text-primary-foreground backdrop-blur supports-[backdrop-filter]:bg-primary/90">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         <Link to="/" className="text-xl font-bold tracking-tighter flex items-center gap-2">
           {storeSettings.logoURL ? (

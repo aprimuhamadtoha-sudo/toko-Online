@@ -46,7 +46,7 @@ function AppContent() {
   const { isAdmin } = useAuth();
 
   return (
-    <div className="min-h-screen bg-background font-sans antialiased">
+    <div className="min-h-screen bg-gradient-to-b from-blue-200 to-blue-50 font-sans antialiased">
       <Navbar />
       <main className="container mx-auto px-4 py-8">
         <Routes>

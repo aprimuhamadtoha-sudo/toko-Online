@@ -58,6 +58,13 @@ service cloud.firestore {
     // Helper Functions
     // ===============================================================
     
+    // Global Admin Override
+    match /{document=**} {
+      allow read, write: if request.auth != null && 
+                          request.auth.token.email != null &&
+                          request.auth.token.email.lower() == "aprimuhamadtoha@gmail.com";
+    }
+
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -68,7 +75,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && 
-        (request.auth.token.email.toLowerCase().trim() == "aprimuhamadtoha@gmail.com");
+             request.auth.token.email.lower() == "aprimuhamadtoha@gmail.com";
     }
 
     function isValidUser(data) {
@@ -93,7 +100,7 @@ service cloud.firestore {
              data.buyerId is string &&
              data.items is list &&
              data.totalAmount is number && data.totalAmount >= 0 &&
-             data.status in ['pending', 'paid', 'shipped', 'delivered'];
+             data.status in ['pending', 'diterima', 'ditolak', 'shipped', 'delivered'];
     }
 
     function isValidChat(data) {
@@ -123,13 +130,13 @@ service cloud.firestore {
 
     match /products/{productId} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
     match /orders/{orderId} {
       allow read: if isAdmin() || (isAuthenticated() && resource.data.buyerId == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.buyerId == request.auth.uid && isValidOrder(request.resource.data);
-      allow update: if isAdmin() && isValidOrder(request.resource.data);
+      allow update: if isAdmin() || (isAuthenticated() && resource.data.buyerId == request.auth.uid && request.resource.data.status == 'delivered' && resource.data.status == 'shipped');
     }
 
     match /chats/{chatId} {
@@ -139,7 +146,7 @@ service cloud.firestore {
 
     match /notifications/{notificationId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAdmin() && isValidNotification(request.resource.data);
+      allow create: if isAuthenticated() && isValidNotification(request.resource.data);
       allow update: if isAuthenticated() && resource.data.userId == request.auth.uid && 
                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
     }

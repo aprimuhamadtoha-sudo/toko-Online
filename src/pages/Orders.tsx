@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, updateDoc, doc } from 'firebase/firestore';
 import { useAuth } from '../lib/AuthContext';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Package, Clock, CheckCircle, Truck } from 'lucide-react';
+import { Package, Clock, CheckCircle, Truck, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 
 export default function Orders() {
   const { user } = useAuth();
@@ -25,10 +27,20 @@ export default function Orders() {
     return () => unsubscribe();
   }, [user]);
 
+  const confirmReceipt = async (orderId: string) => {
+    try {
+      await updateDoc(doc(db, 'orders', orderId), { status: 'delivered' });
+      toast.success('Pesanan diterima');
+    } catch (error) {
+      toast.error('Gagal memperbarui status');
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending': return <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-200"><Clock className="w-3 h-3 mr-1" /> Menunggu</Badge>;
-      case 'paid': return <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-200"><CheckCircle className="w-3 h-3 mr-1" /> Dibayar</Badge>;
+      case 'diterima': return <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-200"><CheckCircle className="w-3 h-3 mr-1" /> Diterima</Badge>;
+      case 'ditolak': return <Badge variant="outline" className="bg-red-100 text-red-800 border-red-200"><Trash2 className="w-3 h-3 mr-1" /> Ditolak</Badge>;
       case 'shipped': return <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-200"><Truck className="w-3 h-3 mr-1" /> Dikirim</Badge>;
       case 'delivered': return <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200"><CheckCircle className="w-3 h-3 mr-1" /> Selesai</Badge>;
       default: return <Badge>{status}</Badge>;
@@ -76,6 +88,13 @@ export default function Orders() {
                 </div>
               </div>
             </CardContent>
+            {order.status === 'shipped' && (
+              <CardFooter className="border-t pt-4">
+                <Button className="w-full" onClick={() => confirmReceipt(order.id)}>
+                  Konfirmasi Pesanan Diterima
+                </Button>
+              </CardFooter>
+            )}
           </Card>
         ))
       )}
