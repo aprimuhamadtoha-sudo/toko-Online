@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, where } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, where, getDocs } from 'firebase/firestore';
 import { useAuth } from '../lib/AuthContext';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -24,13 +24,31 @@ export default function Chat() {
   const [newMessage, setNewMessage] = useState('');
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [users, setUsers] = useState<any[]>([]);
+  const [adminUid, setAdminUid] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const OWNER_EMAIL = 'aprimuhamadtoha@gmail.com';
+
+  // Fetch Admin UID
+  useEffect(() => {
+    const fetchAdmin = async () => {
+      const q = query(collection(db, 'users'), where('email', '==', OWNER_EMAIL));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        setAdminUid(snap.docs[0].id);
+      }
+    };
+    fetchAdmin();
+  }, []);
 
   // Admin: Fetch list of users who have messaged
   useEffect(() => {
     if (!isAdmin) return;
     const unsub = onSnapshot(collection(db, 'users'), (snap) => {
-      setUsers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(u => u.id !== user?.uid));
+      setUsers(snap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .filter(u => u.id !== user?.uid && u.email !== OWNER_EMAIL)
+      );
     });
     return () => unsub();
   }, [isAdmin, user]);
@@ -49,30 +67,25 @@ export default function Chat() {
         orderBy('createdAt', 'asc')
       );
     } else {
-      // Buyer: Chat with admin (ApriMuhamadToha@gmail.com)
-      // For simplicity, find admin UID or use a fixed one if known
-      // Here we assume admin is the one with the specific email
+      // Buyer: Chat with admin
+      if (!adminUid) return;
       q = query(
         collection(db, 'chats'),
+        where('senderId', 'in', [user.uid, adminUid]),
+        where('receiverId', 'in', [user.uid, adminUid]),
         orderBy('createdAt', 'asc')
       );
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
-      // Filter for buyer (since 'in' query above is limited)
-      if (!isAdmin) {
-        const filtered = msgs.filter(m => 
-          (m.senderId === user.uid) || (m.receiverId === user.uid)
-        );
-        setMessages(filtered);
-      } else {
-        setMessages(msgs);
-      }
+      setMessages(msgs);
+    }, (error) => {
+      console.error("Chat error:", error);
     });
 
     return () => unsubscribe();
-  }, [user, isAdmin, selectedUser]);
+  }, [user, isAdmin, selectedUser, adminUid]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -84,11 +97,12 @@ export default function Chat() {
     e.preventDefault();
     if (!newMessage.trim() || !user) return;
 
-    const receiverId = isAdmin ? selectedUser : 'ADMIN_UID_PLACEHOLDER'; // In real app, find admin UID
+    const receiverId = isAdmin ? selectedUser : adminUid;
+    if (!receiverId) return;
     
     await addDoc(collection(db, 'chats'), {
       senderId: user.uid,
-      receiverId: receiverId || 'admin',
+      receiverId: receiverId,
       text: newMessage,
       createdAt: serverTimestamp()
     });
