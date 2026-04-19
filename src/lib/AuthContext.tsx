@@ -1,22 +1,25 @@
 import * as React from 'react';
 import { createContext, useContext, useEffect, useState } from 'react';
-import { auth, db } from './firebase';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { auth } from './firebase';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 interface UserProfile {
+  id: string;
   uid: string;
   email: string;
   role: 'admin' | 'buyer';
+  name: string;
   displayName: string;
-  photoURL: string;
+  image: string;
 }
 
 interface AuthContextType {
-  user: FirebaseUser | null;
+  user: any | null;
   profile: UserProfile | null;
   loading: boolean;
   isAdmin: boolean;
+  signIn: () => Promise<void>;
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -24,95 +27,118 @@ const AuthContext = createContext<AuthContextType>({
   profile: null,
   loading: true,
   isAdmin: false,
+  signIn: async () => {},
+  signOut: async () => {},
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<FirebaseUser | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [session, setSession] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      try {
-        setUser(firebaseUser);
-        
-        if (firebaseUser) {
-          // Fetch from Postgres via API
-          const response = await fetch(`/api/users/${firebaseUser.uid}`);
-          let pgUser = null;
-          
-          if (response.ok) {
-            pgUser = await response.json();
-          }
-          
-          const ownerEmail = 'aprimuhamadtoha@gmail.com';
-          const currentUserEmail = firebaseUser.email?.toLowerCase().trim();
-          const isOwnerEmail = currentUserEmail === ownerEmail;
-
-          if (pgUser) {
-            const normalizedProfile: UserProfile = {
-              uid: pgUser.id,
-              email: pgUser.email,
-              role: pgUser.role,
-              displayName: pgUser.display_name || 'User',
-              photoURL: pgUser.photo_url || ''
-            };
-            setProfile(normalizedProfile);
-            
-            // Sync role if owner
-            if (isOwnerEmail && pgUser.role !== 'admin') {
-              await fetch('/api/users', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  id: firebaseUser.uid,
-                  email: firebaseUser.email,
-                  displayName: firebaseUser.displayName,
-                  role: 'admin'
-                })
-              });
-              setProfile({ ...normalizedProfile, role: 'admin' });
-            }
-          } else {
-            // Create user in Postgres
-            const newProfileData = {
-              id: firebaseUser.uid,
-              email: firebaseUser.email || '',
-              displayName: firebaseUser.displayName || 'User',
-              role: isOwnerEmail ? 'admin' : 'buyer'
-            };
-            await fetch('/api/users', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(newProfileData)
-            });
-            
-            setProfile({
-              uid: newProfileData.id,
-              email: newProfileData.email,
-              displayName: newProfileData.displayName,
-              role: newProfileData.role as 'admin' | 'buyer',
-              photoURL: firebaseUser.photoURL || ''
-            });
-          }
-        } else {
-          setProfile(null);
-        }
-      } catch (error) {
-        console.error('Auth synchronization error:', error);
-      } finally {
-        setLoading(false);
+  const fetchSession = async () => {
+    try {
+      const res = await fetch('/api/auth/session', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setSession(data && data.user ? data : null);
       }
-    });
+    } catch (err) {
+      console.error('Failed to fetch session', err);
+      setSession(null);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    return () => unsubscribe();
+  useEffect(() => {
+    fetchSession();
   }, []);
 
+  const getCsrfToken = async () => {
+    const res = await fetch('/api/auth/csrf', { credentials: 'include' });
+    const { csrfToken } = await res.json();
+    return csrfToken;
+  };
+
+  const signIn = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      console.log("Starting Firebase signInWithPopup...");
+      const result = await signInWithPopup(auth, provider);
+      console.log("Firebase popup success. Getting ID token...");
+      const idToken = await result.user.getIdToken();
+      
+      console.log("Fetching CSRF token...");
+      const csrfToken = await getCsrfToken();
+      console.log("CSRF Token obtained:", !!csrfToken);
+
+      if (!csrfToken) {
+        throw new Error("Cookie diblokir oleh browser (CSRF Error). Silakan klik tombol 'Buka di Tab Baru' di pojok kanan atas preview aplikasi untuk login.");
+      }
+
+      // Sign in via Auth.js credentials provider
+      console.log("Submitting to Auth.js (/api/auth/callback/firebase)...");
+      const res = await fetch('/api/auth/callback/firebase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          idToken,
+          csrfToken,
+          json: 'true',
+        }),
+        credentials: 'include'
+      });
+
+      console.log("Auth.js status:", res.status);
+      if (res.ok) {
+        console.log("Auth.js success logic");
+        await fetchSession();
+      } else {
+        const errorText = await res.text();
+        console.error("Auth.js signin error:", errorText);
+        if (res.status === 403) {
+          throw new Error("Cookie diblokir oleh browser. Silakan klik tombol 'Buka di Tab Baru' di pojok kanan atas preview.");
+        }
+        throw new Error(`Gagal verifikasi di server: ${res.status}`);
+      }
+    } catch (error: any) {
+      console.error('SignIn Process Error:', error);
+      throw error;
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      const csrfToken = await getCsrfToken();
+      await fetch('/api/auth/signout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ csrfToken }),
+      });
+      await auth.signOut();
+      setSession(null);
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
+  };
+
+  const profile: UserProfile | null = session?.user ? {
+    id: session.user.id,
+    uid: session.user.id,
+    email: session.user.email,
+    name: session.user.name || 'User',
+    displayName: session.user.name || 'User',
+    image: session.user.image || '',
+    role: session.user.role || 'buyer'
+  } : null;
+
   const value = {
-    user,
+    user: session?.user || null,
     profile,
     loading,
-    isAdmin: profile?.role === 'admin' || user?.email?.toLowerCase().trim() === 'aprimuhamadtoha@gmail.com',
+    isAdmin: profile?.role === 'admin' || profile?.email?.toLowerCase().trim() === 'aprimuhamadtoha@gmail.com',
+    signIn,
+    signOut,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

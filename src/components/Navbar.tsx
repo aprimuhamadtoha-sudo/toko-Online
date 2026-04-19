@@ -1,6 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
-import { auth } from '../lib/firebase';
 import { Button } from '@/components/ui/button';
 import { ShoppingCart, User, LogOut, Menu, X, LayoutDashboard, Store, MessageSquare, Package, Bell, Users } from 'lucide-react';
 import { useState, useEffect } from 'react';
@@ -10,7 +9,7 @@ import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/fire
 import { Badge } from '@/components/ui/badge';
 
 export default function Navbar() {
-  const { user, profile, isAdmin } = useAuth();
+  const { user, profile, isAdmin, signOut } = useAuth();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -22,15 +21,26 @@ export default function Navbar() {
   useEffect(() => {
     if (!user) return;
     
-    const unsubOrders = onSnapshot(query(collection(db, 'orders'), where('buyerId', '==', user.uid), where('status', '==', 'pending')), (snap) => {
-      setOrderCount(snap.size);
-    });
+    const fetchCounts = async () => {
+      try {
+        const response = await fetch(`/api/users/${user.uid}/unread-counts`);
+        const data = await response.json();
+        if (data) {
+          setOrderCount(data.orders);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    fetchCounts();
+    const interval = setInterval(fetchCounts, 30000);
 
     const unsubChats = onSnapshot(query(collection(db, 'chats'), where('receiverId', '==', user.uid), where('read', '==', false)), (snap) => {
       setChatCount(snap.size);
     });
 
-    return () => { unsubOrders(); unsubChats(); };
+    return () => { clearInterval(interval); unsubChats(); };
   }, [user]);
 
   useEffect(() => {
@@ -72,8 +82,7 @@ export default function Navbar() {
   }, [user]);
 
   const handleLogout = async () => {
-    await auth.signOut();
-    navigate('/login');
+    signOut();
   };
 
   const NavItems = () => (

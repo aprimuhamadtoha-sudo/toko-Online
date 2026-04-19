@@ -1,5 +1,3 @@
-import { auth, db } from '../lib/firebase';
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useNavigate } from 'react-router-dom';
@@ -8,22 +6,31 @@ import { toast } from 'sonner';
 import { useAuth } from '../lib/AuthContext';
 import { Link } from 'react-router-dom';
 
+import { useState } from 'react';
+
 export default function Login() {
   const navigate = useNavigate();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, signIn, signOut } = useAuth();
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const handleGoogleLogin = async () => {
-    const provider = new GoogleAuthProvider();
+    setIsLoggingIn(true);
     try {
-      await signInWithPopup(auth, provider);
-      toast.success('Login berhasil!');
+      await signIn();
+      toast.success('Berhasil masuk!');
       navigate('/');
     } catch (error: any) {
       console.error(error);
-      const errorMessage = error.code === 'auth/unauthorized-domain' 
-        ? 'Domain ini belum diizinkan di Firebase Console.' 
-        : error.message || 'Gagal login dengan Google';
-      toast.error(`Gagal login: ${errorMessage}`);
+      const msg = error.message || '';
+      if (msg.includes('popup-blocked')) {
+        toast.error('Popup diblokir! Silakan izinkan popup di browser Anda.');
+      } else if (msg.includes('Cookie diblokir')) {
+        toast.error(msg, { duration: 10000 });
+      } else {
+        toast.error('Gagal masuk: ' + (error.message || 'Error tidak diketahui'));
+      }
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -45,7 +52,7 @@ export default function Login() {
                 Mulai Belanja
               </Button>
             )}
-            <Button variant="ghost" onClick={() => auth.signOut()}>Logout</Button>
+            <Button variant="ghost" onClick={signOut}>Logout</Button>
           </CardContent>
         </Card>
       </div>
@@ -62,9 +69,18 @@ export default function Login() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <Button variant="outline" className="w-full h-12" onClick={handleGoogleLogin}>
-            <img src="https://www.google.com/favicon.ico" alt="Google" className="w-4 h-4 mr-2" />
-            Lanjutkan dengan Google
+          <Button 
+            variant="outline" 
+            className="w-full h-12" 
+            onClick={handleGoogleLogin}
+            disabled={isLoggingIn}
+          >
+            {isLoggingIn ? (
+              <span className="animate-spin mr-2">⏳</span>
+            ) : (
+              <img src="https://www.google.com/favicon.ico" alt="Google" className="w-4 h-4 mr-2" />
+            )}
+            {isLoggingIn ? 'Memproses...' : 'Lanjutkan dengan Google'}
           </Button>
           <p className="text-xs text-center text-muted-foreground mt-4">
             Dengan masuk, Anda menyetujui Syarat dan Ketentuan kami.

@@ -3,18 +3,98 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import dotenv from "dotenv";
 import pg from "pg";
+import { ExpressAuth, getSession } from "@auth/express";
+import Google from "@auth/express/providers/google";
+import PostgresAdapter from "@auth/pg-adapter";
+import Credentials from "@auth/express/providers/credentials";
+import admin from "firebase-admin";
+import fs from "fs";
+
+const fbConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
+const fbConfigValues = JSON.parse(fs.readFileSync(fbConfigPath, "utf-8"));
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    projectId: fbConfigValues.projectId,
+  });
+}
 
 dotenv.config();
 
 const { Pool } = pg;
+
+if (!process.env.DATABASE_URL) {
+  console.warn("WARNING: DATABASE_URL is not set. Database features will fail.");
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL?.includes("sslmode=require") ? { rejectUnauthorized: false } : false
 });
 
+// Add error logging to queries
+const poolQuery = pool.query.bind(pool);
+pool.query = (async (text: any, params: any) => {
+  try {
+    return await poolQuery(text, params);
+  } catch (err: any) {
+    console.error("DB Query Error:", { 
+      text: typeof text === 'string' ? text.substring(0, 100) : 'complex query', 
+      params, 
+      errorMessage: err.message 
+    });
+    throw err;
+  }
+}) as any;
+
 async function initDb() {
+  if (!process.env.DATABASE_URL) {
+    console.error("Database connection failed: DATABASE_URL is missing.");
+    return;
+  }
   const client = await pool.connect();
   try {
     await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        email TEXT UNIQUE,
+        "emailVerified" TIMESTAMP WITH TIME ZONE,
+        image TEXT,
+        display_name TEXT,
+        role TEXT DEFAULT 'buyer',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS accounts (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+        "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        "providerAccountId" TEXT NOT NULL,
+        refresh_token TEXT,
+        access_token TEXT,
+        expires_at INTEGER,
+        token_type TEXT,
+        scope TEXT,
+        id_token TEXT,
+        session_state TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+        "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expires TIMESTAMP WITH TIME ZONE NOT NULL,
+        "sessionToken" TEXT NOT NULL UNIQUE
+      );
+
+      CREATE TABLE IF NOT EXISTS verification_token (
+        identifier TEXT NOT NULL,
+        expires TIMESTAMP WITH TIME ZONE NOT NULL,
+        token TEXT NOT NULL,
+        PRIMARY KEY (identifier, token)
+      );
+
       CREATE TABLE IF NOT EXISTS products (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         name TEXT NOT NULL,
@@ -27,14 +107,6 @@ async function initDb() {
         image_url TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        email TEXT UNIQUE,
-        display_name TEXT,
-        role TEXT DEFAULT 'buyer',
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE TABLE IF NOT EXISTS orders (
@@ -60,6 +132,12 @@ async function initDb() {
         last_seen TEXT
       );
     `);
+
+    // Ensure owner is admin (using email match since ID is unknown until login)
+    await client.query(`
+      UPDATE users SET role = 'admin' WHERE email = 'aprimuhamadtoha@gmail.com'
+    `);
+
     console.log("Database tables initialized");
   } catch (err) {
     console.error("Error initializing database:", err);
@@ -68,12 +146,152 @@ async function initDb() {
   }
 }
 
+const authConfig = {
+  basePath: "/api/auth",
+  providers: [
+    Google({
+      clientId: process.env.AUTH_GOOGLE_ID,
+      clientSecret: process.env.AUTH_GOOGLE_SECRET,
+    }),
+    Credentials({
+      id: "firebase",
+      name: "Firebase",
+      credentials: {
+        idToken: { label: "ID Token", type: "text" },
+      },
+      async authorize(credentials) {
+        console.log("Authorize called, idToken present:", !!credentials?.idToken);
+        if (!credentials?.idToken) return null;
+        try {
+          const decodedToken = await admin.auth().verifyIdToken(credentials.idToken as string);
+          const email = decodedToken.email?.toLowerCase().trim();
+          const uid = decodedToken.uid;
+          const name = decodedToken.name || email?.split('@')[0] || 'User';
+          const picture = decodedToken.picture || '';
+
+          console.log(`Verifying user: ${email} (UID: ${uid})`);
+          const isOwner = email === 'aprimuhamadtoha@gmail.com';
+          
+          // Better Upsert: Handle both id and email conflicts
+          // First, check if user exists by ID or email
+          const existingUser = await pool.query("SELECT * FROM users WHERE id = $1 OR email = $2", [uid, email]);
+          
+          if (existingUser.rows.length > 0) {
+            // Update existing user
+            await pool.query(
+              `UPDATE users SET id = $1, name = $2, image = $3, role = $4 WHERE email = $5`,
+              [uid, name, picture, isOwner ? 'admin' : 'buyer', email]
+            );
+          } else {
+            // Insert new user
+            await pool.query(
+              `INSERT INTO users (id, email, name, image, role) VALUES ($1, $2, $3, $4, $5)`,
+              [uid, email, name, picture, isOwner ? 'admin' : 'buyer']
+            );
+          }
+          
+          const res = await pool.query("SELECT * FROM users WHERE id = $1", [uid]);
+          console.log("Auth success for:", res.rows[0]?.email);
+          return res.rows[0];
+        } catch (error) {
+          console.error("Firebase Auth Error:", error);
+          return null;
+        }
+      },
+    }),
+  ],
+  adapter: PostgresAdapter(pool),
+  cookies: {
+    sessionToken: {
+      name: `authjs.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: "none",
+        path: "/",
+        secure: true,
+      },
+    },
+    callbackUrl: {
+      name: `authjs.callback-url`,
+      options: {
+        sameSite: "none",
+        path: "/",
+        secure: true,
+      },
+    },
+    csrfToken: {
+      name: `authjs.csrf-token`,
+      options: {
+        httpOnly: true,
+        sameSite: "none",
+        path: "/",
+        secure: true,
+      },
+    },
+  },
+  callbacks: {
+    async session({ session, user, token }: any) {
+      const u = user || token?.user;
+      if (session.user && u) {
+        session.user.id = u.id;
+        session.user.uid = u.id;
+        session.user.role = u.role || 'buyer';
+        session.user.name = u.name;
+        session.user.email = u.email;
+        session.user.image = u.image;
+      }
+      return session;
+    },
+    async jwt({ token, user }: any) {
+      if (user) {
+        token.user = user;
+      }
+      return token;
+    }
+  },
+  session: { strategy: "jwt" as const },
+  trustHost: true,
+  secret: process.env.AUTH_SECRET || "fallback-secret-at-least-32-chars-long-for-dev",
+};
+
 async function startServer() {
   await initDb();
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Auth.js routes
+  const authHandler = ExpressAuth(authConfig);
+  app.all("/api/auth/*", (req, res) => {
+    // Determine the base URL for Auth.js
+    const proto = req.get("x-forwarded-proto") || req.protocol;
+    const host = req.get("host");
+    const baseUrl = `${proto}://${host}`;
+    
+    // Auth.js internally uses process.env.AUTH_URL if available
+    // We can also pass it in if the library supported it, but trusting host is usually enough
+    return authHandler(req, res);
+  });
+
+  app.get("/api/auth/session", async (req, res) => {
+    try {
+      const session = await getSession(req, authConfig);
+      console.log("Session check - User exists:", !!session?.user);
+      res.json(session);
+    } catch (err) {
+      console.error("Session error:", err);
+      res.status(500).json({ error: "Auth session error" });
+    }
+  });
+
+  app.get("/api/health", (req, res) => {
+    res.json({ 
+      status: "ok", 
+      env: process.env.NODE_ENV,
+      dbConnected: !!process.env.DATABASE_URL
+    });
+  });
 
   // API Routes
   app.get("/api/products", async (req, res) => {
@@ -304,6 +522,25 @@ async function startServer() {
     }
   });
 
+  app.get("/api/users/:userId/unread-counts", async (req, res) => {
+    const { userId } = req.params;
+    try {
+      // For now, we only have orders in Postgres. 
+      // Other counts (chats, notifications) are still in Firestore for real-time.
+      const ordersRes = await pool.query(
+        "SELECT COUNT(*) FROM orders WHERE buyer_id = $1 AND status = 'pending'",
+        [userId]
+      );
+      res.json({
+        orders: parseInt(ordersRes.rows[0].count),
+        chats: 0,
+        notifications: 0
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   app.post("/api/admin/promote", async (req, res) => {
     const { email } = req.body;
     try {
@@ -321,7 +558,6 @@ async function startServer() {
 
   app.get("/api/dashboard/charts", async (req, res) => {
     try {
-      // Weekly sales (simplified)
       const salesQuery = `
         SELECT 
           to_char(created_at, 'Dy') as name, 
@@ -333,7 +569,6 @@ async function startServer() {
       `;
       const salesRes = await pool.query(salesQuery);
       
-      // Category sales
       const catQuery = `
         SELECT category as name, SUM(sold) as value 
         FROM products 
@@ -350,6 +585,11 @@ async function startServer() {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
+  });
+
+  // Catch-all fallthrough for /api routes to prevent returning index.html
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ error: "API route not found" });
   });
 
   // Vite middleware for development
