@@ -166,6 +166,15 @@ async function startServer() {
     }
   });
 
+  app.get("/api/users/:id", async (req, res) => {
+    try {
+      const result = await pool.query("SELECT * FROM users WHERE id = $1", [req.params.id]);
+      res.json(result.rows[0] || null);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   app.get("/api/users/by-email/:email", async (req, res) => {
     try {
       const result = await pool.query("SELECT * FROM users WHERE email = $1", [req.params.email]);

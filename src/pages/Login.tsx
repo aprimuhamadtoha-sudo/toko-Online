@@ -37,12 +37,12 @@ export default function Login() {
           </CardHeader>
           <CardContent className="space-y-4">
             {isAdmin ? (
-              <Button asChild className="w-full h-12 text-lg">
-                <Link to="/admin">Ke Dashboard Admin</Link>
+              <Button render={<Link to="/admin" />} className="w-full h-12 text-lg">
+                Ke Dashboard Admin
               </Button>
             ) : (
-              <Button asChild className="w-full h-12 text-lg">
-                <Link to="/">Mulai Belanja</Link>
+              <Button render={<Link to="/" />} className="w-full h-12 text-lg">
+                Mulai Belanja
               </Button>
             )}
             <Button variant="ghost" onClick={() => auth.signOut()}>Logout</Button>

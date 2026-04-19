@@ -138,7 +138,7 @@ export default function AdminProducts() {
             Netralkan Produk
           </Button>
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-          <DialogTrigger asChild>
+          <DialogTrigger render={
             <Button onClick={() => {
               setEditingProduct(null);
               setFormData({ name: '', category: '', price: 0, purchasePrice: 0, stock: 0, description: '', imageURL: '' });
@@ -146,7 +146,7 @@ export default function AdminProducts() {
               <Plus className="w-4 h-4 mr-2" />
               Tambah Produk
             </Button>
-          </DialogTrigger>
+          } />
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
               <DialogTitle>{editingProduct ? 'Edit Produk' : 'Tambah Produk Baru'}</DialogTitle>

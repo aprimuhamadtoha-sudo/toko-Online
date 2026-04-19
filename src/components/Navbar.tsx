@@ -175,8 +175,8 @@ export default function Navbar() {
               </Button>
             </div>
           ) : (
-            <Button asChild variant="default" size="sm">
-              <Link to="/login">Login</Link>
+            <Button render={<Link to="/login" />} variant="default" size="sm">
+              Login
             </Button>
           )}
         </div>
@@ -189,10 +189,8 @@ export default function Navbar() {
             </Link>
           )}
           <Sheet open={isOpen} onOpenChange={setIsOpen}>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <Menu className="w-6 h-6" />
-              </Button>
+            <SheetTrigger render={<Button variant="ghost" size="icon" />}>
+              <Menu className="w-6 h-6" />
             </SheetTrigger>
             <SheetContent side="right" className="w-[280px] sm:w-[350px]">
               <div className="flex flex-col gap-6 mt-8">
@@ -210,8 +208,8 @@ export default function Navbar() {
                       </Button>
                     </div>
                   ) : (
-                    <Button asChild className="w-full">
-                      <Link to="/login">Login</Link>
+                    <Button render={<Link to="/login" />} className="w-full">
+                      Login
                     </Button>
                   )}
                 </div>

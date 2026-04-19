@@ -68,11 +68,11 @@ export default function Dashboard() {
           <p className="text-muted-foreground">Ringkasan performa toko Anda secara real-time</p>
         </div>
         <div className="flex gap-2">
-          <Button asChild variant="outline">
-            <Link to="/admin/products">Kelola Produk</Link>
+          <Button render={<Link to="/admin/products" />} variant="outline">
+            Kelola Produk
           </Button>
-          <Button asChild>
-            <Link to="/admin/orders">Lihat Pesanan</Link>
+          <Button render={<Link to="/admin/orders" />}>
+            Lihat Pesanan
           </Button>
         </div>
       </div>

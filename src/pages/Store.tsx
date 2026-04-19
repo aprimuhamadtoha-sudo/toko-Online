@@ -95,11 +95,9 @@ export default function Store() {
               </p>
             </CardContent>
             <CardFooter className="p-4 pt-0 gap-2">
-              <Button asChild variant="outline" className="flex-1">
-                <Link to={`/product/${product.id}`}>
-                  <Eye className="w-4 h-4 mr-2" />
-                  Detail
-                </Link>
+              <Button render={<Link to={`/product/${product.id}`} />} variant="outline" className="flex-1">
+                <Eye className="w-4 h-4 mr-2" />
+                Detail
               </Button>
               <Button 
                 className="flex-1" 
