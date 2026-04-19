@@ -44,9 +44,10 @@ export default function Cart() {
     if (items.length === 0) return toast.error('Keranjang kosong');
 
     try {
-      // Create order
+      // Create order in Postgres via API
       const orderData = {
         buyerId: user.uid,
+        buyerName: user.displayName || 'User',
         items: items.map(item => ({
           productId: item.id,
           name: item.name,
@@ -54,21 +55,16 @@ export default function Cart() {
           price: item.price,
           purchasePrice: item.purchasePrice || 0
         })),
-        totalAmount: total,
-        status: 'pending',
-        createdAt: serverTimestamp()
+        totalAmount: total
       };
 
-      await addDoc(collection(db, 'orders'), orderData);
-
-      // Create notification for admin
-      await addDoc(collection(db, 'notifications'), {
-        userId: 'ApriMuhamadToha@gmail.com', // Admin email or UID
-        title: 'Pesanan Baru!',
-        message: `Ada pesanan baru senilai Rp ${total.toLocaleString()}`,
-        read: false,
-        createdAt: serverTimestamp()
+      const response = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(orderData)
       });
+
+      if (!response.ok) throw new Error('Failed to create order');
 
       localStorage.removeItem('cart');
       setItems([]);

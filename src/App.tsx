@@ -27,25 +27,22 @@ const ProtectedRoute = ({ children, adminOnly = false }: { children: React.React
       // Log visitor to Firestore
       const logVisitor = async () => {
         try {
-          const visitorsRef = collection(db, 'visitors');
-          const q = query(visitorsRef, where('email', '==', user.email));
-          const querySnapshot = await getDocs(q);
+          const timestamp = new Date().toLocaleString('id-ID');
+          const lastSeen = new Date().toLocaleString('id-ID');
           
-          if (querySnapshot.empty) {
-            await addDoc(visitorsRef, {
+          // Check if visitor exists via API or just send to backend to handle (backend handles update gracefully)
+          await fetch('/api/visitors', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
               email: user.email,
               name: profile?.displayName || user.displayName || 'Anonymous',
-              timestamp: new Date().toLocaleString('id-ID'),
-              lastSeen: new Date().toLocaleString('id-ID'),
-            });
-          } else {
-            const visitorDoc = querySnapshot.docs[0];
-            await updateDoc(doc(db, 'visitors', visitorDoc.id), {
-              lastSeen: new Date().toLocaleString('id-ID'),
-            });
-          }
+              timestamp,
+              lastSeen
+            })
+          });
         } catch (error) {
-          console.error('Error logging visitor to Firestore:', error);
+          console.error('Error logging visitor:', error);
         }
       };
       logVisitor();

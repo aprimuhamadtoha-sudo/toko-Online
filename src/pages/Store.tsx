@@ -24,17 +24,23 @@ export default function Store() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, 'products'), orderBy('name', 'asc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product));
-      setProducts(items);
-      setLoading(false);
-    }, (error) => {
-      console.error(error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
+    const fetchProducts = async () => {
+      try {
+        const response = await fetch('/api/products');
+        if (!response.ok) throw new Error('Failed to fetch');
+        const data = await response.json();
+        setProducts(data.map((p: any) => ({
+          ...p,
+          imageURL: p.image_url,
+          price: Number(p.price)
+        })));
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProducts();
   }, []);
 
   const addToCart = (product: Product) => {

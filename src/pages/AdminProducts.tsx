@@ -24,6 +24,8 @@ interface Product {
 export default function AdminProducts() {
   const [products, setProducts] = useState<Product[]>([]);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isSuccessOpen, setIsSuccessOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -36,31 +38,56 @@ export default function AdminProducts() {
   });
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'products'), (snapshot) => {
-      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product));
-      setProducts(items);
-    });
-    return () => unsubscribe();
+    const fetchProducts = async () => {
+      try {
+        const response = await fetch('/api/products');
+        const data = await response.json();
+        setProducts(data.map((p: any) => ({
+          ...p,
+          imageURL: p.image_url,
+          purchasePrice: Number(p.purchase_price)
+        })));
+      } catch (err) {
+        console.error('Error fetching products:', err);
+      }
+    };
+    fetchProducts();
+    // In a real app we might use websockets or polling, but for now we'll just fetch once or refresh
   }, []);
 
   const handleSave = async () => {
     try {
       if (editingProduct) {
-        await updateDoc(doc(db, 'products', editingProduct.id), {
-          ...formData,
-          updatedAt: serverTimestamp()
+        const response = await fetch(`/api/products/${editingProduct.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
         });
+        if (!response.ok) throw new Error('Failed to update product');
         toast.success('Produk diperbarui');
+        setSuccessMessage('Produk berhasil diperbarui!');
       } else {
-        console.log('Attempting to add product:', formData);
-        await addDoc(collection(db, 'products'), {
-          ...formData,
-          sold: 0,
-          createdAt: serverTimestamp()
+        const response = await fetch('/api/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
         });
+        if (!response.ok) throw new Error('Failed to add product');
         toast.success('Produk ditambahkan');
+        setSuccessMessage('Produk berhasil ditambahkan ke katalog!');
       }
+      
+      // Refresh list
+      const res = await fetch('/api/products');
+      const data = await res.json();
+      setProducts(data.map((p: any) => ({
+        ...p,
+        imageURL: p.image_url,
+        purchasePrice: Number(p.purchase_price)
+      })));
+
       setIsAddOpen(false);
+      setIsSuccessOpen(true);
       setEditingProduct(null);
       setFormData({ name: '', category: '', price: 0, purchasePrice: 0, stock: 0, description: '', imageURL: '' });
     } catch (error) {
@@ -71,8 +98,13 @@ export default function AdminProducts() {
 
   const handleDelete = async (id: string) => {
     if (confirm('Hapus produk ini?')) {
-      await deleteDoc(doc(db, 'products', id));
-      toast.success('Produk dihapus');
+      try {
+        await fetch(`/api/products/${id}`, { method: 'DELETE' });
+        setProducts(products.filter(p => p.id !== id));
+        toast.success('Produk dihapus');
+      } catch (error) {
+        toast.error('Gagal menghapus produk');
+      }
     }
   };
 
@@ -162,6 +194,23 @@ export default function AdminProducts() {
               <Button variant="outline" onClick={() => setIsAddOpen(false)}>Batal</Button>
               <Button onClick={handleSave}>Simpan</Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isSuccessOpen} onOpenChange={setIsSuccessOpen}>
+          <DialogContent className="sm:max-w-[400px] text-center py-8">
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
+                <Package className="w-8 h-8 text-green-600" />
+              </div>
+              <DialogHeader>
+                <DialogTitle className="text-2xl text-center">Berhasil!</DialogTitle>
+              </DialogHeader>
+              <p className="text-muted-foreground">{successMessage}</p>
+              <Button onClick={() => setIsSuccessOpen(false)} className="w-full mt-4 bg-green-600 hover:bg-green-700">
+                Selesai
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       </div>

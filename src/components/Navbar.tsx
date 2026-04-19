@@ -17,7 +17,7 @@ export default function Navbar() {
   const [cartCount, setCartCount] = useState(0);
   const [orderCount, setOrderCount] = useState(0);
   const [chatCount, setChatCount] = useState(0);
-  const [storeSettings, setStoreSettings] = useState({ name: 'Jasa Las', logoURL: '' });
+  const [storeSettings, setStoreSettings] = useState({ name: 'Jasa Las', address: '', logoURL: '' });
 
   useEffect(() => {
     if (!user) return;
@@ -45,10 +45,14 @@ export default function Navbar() {
 
   useEffect(() => {
     const fetchSettings = async () => {
-      const docRef = doc(db, 'settings', 'store');
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        setStoreSettings(docSnap.data() as any);
+      try {
+        const response = await fetch('/api/settings/store');
+        const data = await response.json();
+        if (data) {
+          setStoreSettings(data);
+        }
+      } catch (err) {
+        console.error(err);
       }
     };
     fetchSettings();
@@ -131,15 +135,20 @@ export default function Navbar() {
   return (
     <nav className="sticky top-0 z-50 w-full border-b bg-primary text-primary-foreground backdrop-blur supports-[backdrop-filter]:bg-primary/90">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-        <Link to="/" className="text-xl font-bold tracking-tighter flex items-center gap-2">
+        <Link to="/" className="flex items-center gap-3">
           {storeSettings.logoURL ? (
-            <img src={storeSettings.logoURL} alt="Logo" className="w-8 h-8 object-contain" />
+            <img src={storeSettings.logoURL} alt="Logo" className="w-10 h-10 object-contain rounded-md bg-white p-1" />
           ) : (
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-primary-foreground">
+            <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-inner border border-white/20">
               {storeSettings.name.charAt(0)}
             </div>
           )}
-          {storeSettings.name}
+          <div className="flex flex-col leading-tight">
+            <span className="text-xl font-bold tracking-tighter">{storeSettings.name}</span>
+            {storeSettings.address && (
+              <span className="text-[10px] font-medium opacity-80 line-clamp-1 max-w-[200px]">{storeSettings.address}</span>
+            )}
+          </div>
         </Link>
 
         {/* Desktop Nav */}

@@ -14,84 +14,32 @@ export default function Dashboard() {
     totalOrders: 0,
     totalProducts: 0,
     totalUsers: 0,
-    totalSold: 0
+    totalSold: 0,
+    totalVisitors: 0
   });
   const [salesData, setSalesData] = useState<any[]>([]);
   const [categoryData, setCategoryData] = useState<any[]>([]);
 
   useEffect(() => {
-    // Listen to products for category data and basic stats
-    const unsubProducts = onSnapshot(collection(db, 'products'), (snap) => {
-      const products = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-      const totalSold = products.reduce((acc, p) => acc + (p.sold || 0), 0);
-      
-      // Calculate category data
-      const catMap: Record<string, number> = {};
-      products.forEach(p => {
-        if (p.category) {
-          catMap[p.category] = (catMap[p.category] || 0) + (p.sold || 0);
+    const fetchDashboardData = async () => {
+      try {
+        const [statsRes, chartsRes] = await Promise.all([
+          fetch('/api/dashboard/stats').then(res => res.json()),
+          fetch('/api/dashboard/charts').then(res => res.json())
+        ]);
+
+        if (statsRes && !statsRes.error) {
+          setStats(statsRes);
         }
-      });
-      const catData = Object.entries(catMap)
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 5);
-      
-      setCategoryData(catData);
-      setStats(prev => ({ ...prev, totalProducts: snap.size, totalSold }));
-    });
-
-    // Listen to orders for revenue, profit, and sales chart
-    const unsubOrders = onSnapshot(collection(db, 'orders'), (snap) => {
-      const orders = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-      const totalOrders = snap.size;
-      const totalRevenue = orders.reduce((acc, o) => acc + (o.totalAmount || 0), 0);
-      
-      // Calculate profit (this is an estimate based on current purchasePrice)
-      // In a real app, we'd store purchasePrice in the order item at checkout time
-      // For now, we'll fetch products once to get prices
-      let totalProfit = 0;
-      
-      // Weekly sales data aggregation
-      const days = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
-      const weeklyMap: Record<string, number> = {};
-      days.forEach(d => weeklyMap[d] = 0);
-
-      orders.forEach(order => {
-        if (order.createdAt) {
-          const date = order.createdAt.toDate();
-          const dayName = days[date.getDay()];
-          weeklyMap[dayName] += order.totalAmount || 0;
+        if (chartsRes && !chartsRes.error) {
+          if (chartsRes.salesData) setSalesData(chartsRes.salesData);
+          if (chartsRes.categoryData) setCategoryData(chartsRes.categoryData);
         }
-
-        // Calculate profit for this order
-        if (order.items && Array.isArray(order.items)) {
-          order.items.forEach((item: any) => {
-            // We'd ideally have item.purchasePrice here
-            // Since we don't, we'll assume a 20% margin if we can't find the product
-            // But let's try to calculate it if we had the data
-            // For this demo, let's assume profit is 30% of revenue if not specified
-            // Or better, let's just use a placeholder logic that looks real
-            const itemProfit = (item.price - (item.purchasePrice || item.price * 0.7)) * item.quantity;
-            totalProfit += itemProfit;
-          });
-        }
-      });
-
-      const sData = days.map(name => ({ name, sales: weeklyMap[name] }));
-      setSalesData(sData);
-      setStats(prev => ({ ...prev, totalOrders, totalRevenue, totalProfit }));
-    });
-
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-      setStats(prev => ({ ...prev, totalUsers: snap.size }));
-    });
-
-    return () => {
-      unsubProducts();
-      unsubOrders();
-      unsubUsers();
+      } catch (err) {
+        console.error('Error fetching dashboard data:', err);
+      }
     };
+    fetchDashboardData();
   }, []);
 
   const StatCard = ({ title, value, icon: Icon, trend, color }: any) => (
@@ -171,6 +119,13 @@ export default function Dashboard() {
           value={stats.totalUsers} 
           icon={Users} 
           trend="+18%" 
+        />
+        <StatCard 
+          title="Total Pengunjung" 
+          value={stats.totalVisitors} 
+          icon={Users} 
+          trend="+5%" 
+          color="bg-orange-100"
         />
       </div>
 

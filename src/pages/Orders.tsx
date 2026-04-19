@@ -15,21 +15,31 @@ export default function Orders() {
 
   useEffect(() => {
     if (!user) return;
-    const q = query(
-      collection(db, 'orders'),
-      where('buyerId', '==', user.uid),
-      orderBy('createdAt', 'desc')
-    );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
-    });
-    return () => unsubscribe();
+    const fetchOrders = async () => {
+      try {
+        const response = await fetch(`/api/orders?userId=${user.uid}`);
+        const data = await response.json();
+        setOrders(data.map((o: any) => ({
+          ...o,
+          totalAmount: Number(o.total_amount)
+        })));
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchOrders();
   }, [user]);
 
   const confirmReceipt = async (orderId: string) => {
     try {
-      await updateDoc(doc(db, 'orders', orderId), { status: 'delivered' });
+      await fetch(`/api/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'delivered' })
+      });
+      setOrders(orders.map(o => o.id === orderId ? { ...o, status: 'delivered' } : o));
       toast.success('Pesanan diterima');
     } catch (error) {
       toast.error('Gagal memperbarui status');

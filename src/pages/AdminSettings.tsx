@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Trash2, ShieldCheck, UserPlus } from 'lucide-react';
 
@@ -18,33 +19,44 @@ export default function AdminSettings() {
 
   useEffect(() => {
     const fetchData = async () => {
-      // Fetch Store Settings
-      const docRef = doc(db, 'settings', 'store');
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        setSettings(docSnap.data() as any);
-      }
+      try {
+        // Parallel fetching to improve speed
+        const [settingsData, usersData] = await Promise.all([
+          fetch('/api/settings/store').then(res => res.json()),
+          fetch('/api/users').then(res => res.json()) // I need to add /api/users listing to server.ts
+        ]);
 
-      // Fetch Admins
-      const q = query(collection(db, 'users'), where('role', '==', 'admin'));
-      const querySnapshot = await getDocs(q);
-      const adminList = querySnapshot.docs
-        .map(doc => ({
-          uid: doc.id,
-          email: doc.data().email,
-          displayName: doc.data().displayName || 'Admin'
-        }))
-        .filter(admin => admin.email.toLowerCase() !== OWNER_EMAIL);
-      setAdmins(adminList);
-      
-      setLoading(false);
+        if (settingsData) {
+          setSettings(settingsData);
+        }
+
+        if (usersData && Array.isArray(usersData)) {
+          const adminList = usersData
+            .filter((u: any) => u.role === 'admin' && u.email.toLowerCase() !== OWNER_EMAIL)
+            .map((u: any) => ({
+              uid: u.id,
+              email: u.email,
+              displayName: u.display_name || 'Admin'
+            }));
+          setAdmins(adminList);
+        }
+      } catch (error) {
+        console.error('Error fetching admin data:', error);
+        toast.error('Gagal memuat data pengaturan');
+      } finally {
+        setLoading(false);
+      }
     };
     fetchData();
   }, []);
 
   const handleSaveSettings = async () => {
     try {
-      await setDoc(doc(db, 'settings', 'store'), settings);
+      await fetch('/api/settings/store', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
       toast.success('Pengaturan toko diperbarui');
     } catch (error) {
       toast.error('Gagal memperbarui pengaturan');
@@ -56,24 +68,29 @@ export default function AdminSettings() {
     const email = newAdminEmail.toLowerCase().trim();
     
     try {
-      const q = query(collection(db, 'users'), where('email', '==', email));
-      const querySnapshot = await getDocs(q);
+      const response = await fetch('/api/admin/promote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
       
-      if (querySnapshot.empty) {
-        toast.error('User dengan email ini belum pernah login ke aplikasi');
-        return;
-      }
+      if (!response.ok) throw new Error('Failed to promote');
 
-      const userDoc = querySnapshot.docs[0];
-      await updateDoc(doc(db, 'users', userDoc.id), { role: 'admin' });
-      
-      setAdmins([...admins, { 
-        uid: userDoc.id, 
-        email: userDoc.data().email, 
-        displayName: userDoc.data().displayName || 'Admin' 
-      }]);
-      setNewAdminEmail('');
       toast.success(`${email} sekarang menjadi Admin`);
+      setNewAdminEmail('');
+      
+      // Refresh user list
+      const usersRes = await fetch('/api/users').then(res => res.json());
+      if (usersRes && Array.isArray(usersRes)) {
+        const adminList = usersRes
+          .filter((u: any) => u.role === 'admin' && u.email.toLowerCase() !== OWNER_EMAIL)
+          .map((u: any) => ({
+            uid: u.id,
+            email: u.email,
+            displayName: u.display_name || 'Admin'
+          }));
+        setAdmins(adminList);
+      }
     } catch (error) {
       toast.error('Gagal menambahkan admin');
     }
@@ -88,9 +105,25 @@ export default function AdminSettings() {
     if (!confirm(`Hapus akses admin untuk ${email}?`)) return;
 
     try {
-      await updateDoc(doc(db, 'users', uid), { role: 'buyer' });
-      setAdmins(admins.filter(a => a.uid !== uid));
+      await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: uid, email, role: 'buyer' })
+      });
+      
       toast.success('Akses admin dicabut');
+      // Refresh list
+      const usersRes = await fetch('/api/users').then(res => res.json());
+      if (usersRes && Array.isArray(usersRes)) {
+        const adminList = usersRes
+          .filter((u: any) => u.role === 'admin' && u.email.toLowerCase() !== OWNER_EMAIL)
+          .map((u: any) => ({
+            uid: u.id,
+            email: u.email,
+            displayName: u.display_name || 'Admin'
+          }));
+        setAdmins(adminList);
+      }
     } catch (error) {
       toast.error('Gagal menghapus admin');
     }
@@ -100,9 +133,14 @@ export default function AdminSettings() {
 
   return (
     <div className="space-y-8 pb-12">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Pengaturan</h1>
-        <p className="text-muted-foreground">Kelola identitas toko dan hak akses admin</p>
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">{settings.name}</h1>
+          <p className="text-muted-foreground">{settings.address || 'Alamat belum diatur'}</p>
+        </div>
+        <Badge variant="outline" className="w-fit h-fit px-3 py-1 bg-white shadow-sm">
+          Menu Pengaturan
+        </Badge>
       </div>
 
       <div className="grid gap-8 md:grid-cols-2">

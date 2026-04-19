@@ -33,40 +33,76 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      
-      if (firebaseUser) {
-        const userDocRef = doc(db, 'users', firebaseUser.uid);
-        const userDoc = await getDoc(userDocRef);
-        const ownerEmail = 'aprimuhamadtoha@gmail.com';
-        const currentUserEmail = firebaseUser.email?.toLowerCase().trim();
-        const isOwnerEmail = currentUserEmail === ownerEmail;
+      try {
+        setUser(firebaseUser);
         
-        if (userDoc.exists()) {
-          const data = userDoc.data() as UserProfile;
-          // Force admin role if email matches owner
-          if (isOwnerEmail && data.role !== 'admin') {
-            await updateDoc(userDocRef, { role: 'admin' });
-            setProfile({ ...data, role: 'admin' });
+        if (firebaseUser) {
+          // Fetch from Postgres via API
+          const response = await fetch(`/api/users/${firebaseUser.uid}`);
+          let pgUser = null;
+          
+          if (response.ok) {
+            pgUser = await response.json();
+          }
+          
+          const ownerEmail = 'aprimuhamadtoha@gmail.com';
+          const currentUserEmail = firebaseUser.email?.toLowerCase().trim();
+          const isOwnerEmail = currentUserEmail === ownerEmail;
+
+          if (pgUser) {
+            const normalizedProfile: UserProfile = {
+              uid: pgUser.id,
+              email: pgUser.email,
+              role: pgUser.role,
+              displayName: pgUser.display_name || 'User',
+              photoURL: pgUser.photo_url || ''
+            };
+            setProfile(normalizedProfile);
+            
+            // Sync role if owner
+            if (isOwnerEmail && pgUser.role !== 'admin') {
+              await fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  id: firebaseUser.uid,
+                  email: firebaseUser.email,
+                  displayName: firebaseUser.displayName,
+                  role: 'admin'
+                })
+              });
+              setProfile({ ...normalizedProfile, role: 'admin' });
+            }
           } else {
-            setProfile(data);
+            // Create user in Postgres
+            const newProfileData = {
+              id: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              displayName: firebaseUser.displayName || 'User',
+              role: isOwnerEmail ? 'admin' : 'buyer'
+            };
+            await fetch('/api/users', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(newProfileData)
+            });
+            
+            setProfile({
+              uid: newProfileData.id,
+              email: newProfileData.email,
+              displayName: newProfileData.displayName,
+              role: newProfileData.role as 'admin' | 'buyer',
+              photoURL: firebaseUser.photoURL || ''
+            });
           }
         } else {
-          // Create default profile for new users
-          const newProfile: UserProfile = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            role: isOwnerEmail ? 'admin' : 'buyer',
-            displayName: firebaseUser.displayName || 'User',
-            photoURL: firebaseUser.photoURL || '',
-          };
-          await setDoc(userDocRef, newProfile);
-          setProfile(newProfile);
+          setProfile(null);
         }
-      } else {
-        setProfile(null);
+      } catch (error) {
+        console.error('Auth synchronization error:', error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();

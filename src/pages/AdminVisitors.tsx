@@ -20,20 +20,20 @@ export default function AdminVisitors() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
-    const q = query(collection(db, 'visitors'), orderBy('timestamp', 'desc'));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visitor));
-      setVisitors(items);
-      setLoading(false);
-    }, (error) => {
-      console.error('Error fetching visitors:', error);
-      toast.error('Gagal mengambil data pengunjung dari Firestore');
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
+    const fetchVisitors = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch('/api/visitors');
+        const data = await response.json();
+        setVisitors(data);
+      } catch (error) {
+        console.error('Error fetching visitors:', error);
+        toast.error('Gagal mengambil data pengunjung');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchVisitors();
   }, []);
 
   return (
@@ -41,7 +41,7 @@ export default function AdminVisitors() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Log Pengunjung</h1>
-          <p className="text-muted-foreground">Daftar pengguna yang telah mengakses toko ini (Data dari Firestore)</p>
+          <p className="text-muted-foreground">Daftar pengguna yang telah mengakses toko ini (Data dari PostgreSQL)</p>
         </div>
       </div>
 

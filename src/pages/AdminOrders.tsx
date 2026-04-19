@@ -11,59 +11,40 @@ export default function AdminOrders() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching orders:", error);
-      toast.error("Gagal memuat data pesanan");
-      setLoading(false);
-    });
-    return () => unsubscribe();
+    const fetchOrders = async () => {
+      try {
+        const response = await fetch('/api/orders');
+        const data = await response.json();
+        setOrders(data.map((o: any) => ({
+          ...o,
+          totalAmount: Number(o.total_amount),
+          buyerId: o.buyer_id,
+          createdAt: { toDate: () => new Date(o.created_at) } // Mock Firestore date for UI compatibility
+        })));
+      } catch (err) {
+        console.error("Error fetching orders:", err);
+        toast.error("Gagal memuat data pesanan");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchOrders();
   }, []);
 
   const updateStatus = async (orderId: string, newStatus: string) => {
     try {
-      const order = orders.find(o => o.id === orderId);
-      if (!order) return;
-
-      const orderRef = doc(db, 'orders', orderId);
+      const response = await fetch(`/api/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (!response.ok) throw new Error('Failed to update status');
       
-      const confirmedStatuses = ['diterima', 'shipped', 'delivered'];
-      const isNewStatusConfirmed = confirmedStatuses.includes(newStatus);
-      const isOldStatusConfirmed = confirmedStatuses.includes(order.status);
-
-      // Update stock if status changes to a confirmed state from an unconfirmed one
-      if (isNewStatusConfirmed && !isOldStatusConfirmed) {
-        for (const item of order.items) {
-          const productRef = doc(db, 'products', item.productId);
-          await updateDoc(productRef, {
-            stock: increment(-item.quantity),
-            sold: increment(item.quantity)
-          });
-        }
-      }
-      // Return stock if status changes FROM a confirmed state to an unconfirmed one (e.g. 'ditolak' or 'pending')
-      else if (!isNewStatusConfirmed && isOldStatusConfirmed) {
-        for (const item of order.items) {
-          const productRef = doc(db, 'products', item.productId);
-          await updateDoc(productRef, {
-            stock: increment(item.quantity),
-            sold: increment(-item.quantity)
-          });
-        }
-      }
-
-      await updateDoc(orderRef, { status: newStatus });
+      setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
       toast.success('Status pesanan diperbarui');
     } catch (error: any) {
       console.error('Error updating status:', error);
-      // Detailed error message for debugging
-      const errorMessage = error.code === 'permission-denied' 
-        ? 'Akses ditolak (Permission Denied). Pastikan Anda adalah Admin.' 
-        : error.message || 'Terjadi kesalahan';
-      toast.error(`Gagal memperbarui status: ${errorMessage}`);
+      toast.error(`Gagal memperbarui status: ${error.message}`);
     }
   };
 
