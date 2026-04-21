@@ -39,8 +39,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await fetch('/api/auth/session', { credentials: 'include' });
       if (res.ok) {
-        const data = await res.json();
-        setSession(data && data.user ? data : null);
+        const text = await res.text();
+        try {
+          const data = JSON.parse(text);
+          setSession(data && data.user ? data : null);
+        } catch (e) {
+          console.error("Non-JSON session response:", text);
+          setSession(null);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch session', err);
@@ -55,9 +61,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const getCsrfToken = async () => {
-    const res = await fetch('/api/auth/csrf', { credentials: 'include' });
-    const { csrfToken } = await res.json();
-    return csrfToken;
+    try {
+      const res = await fetch('/api/auth/csrf', { credentials: 'include' });
+      const text = await res.text();
+      try {
+        const { csrfToken } = JSON.parse(text);
+        return csrfToken;
+      } catch (err) {
+        console.error("Non-JSON CSRF response:", text);
+        if (text.includes("<!DOCTYPE") || text.includes("<html")) {
+          throw new Error("Sistem keamanan diblokir oleh browser (Iframe Policy). Silakan buka aplikasi di Tab Baru (ikon kotak panah di pojok kanan atas preview).");
+        }
+        throw new Error("Gagal sistem keamanan (CSRF Parser). Silakan refresh halaman.");
+      }
+    } catch (err: any) {
+      console.error("CSRF Fetch Failure:", err);
+      if (err.message === "Failed to fetch") {
+        throw new Error("Koneksi ke server terputus. Pastikan server sudah berjalan atau buka aplikasi di Tab Baru.");
+      }
+      throw err;
+    }
   };
 
   const signIn = async () => {

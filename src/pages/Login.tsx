@@ -6,12 +6,17 @@ import { toast } from 'sonner';
 import { useAuth } from '../lib/AuthContext';
 import { Link } from 'react-router-dom';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function Login() {
   const navigate = useNavigate();
   const { user, isAdmin, signIn, signOut } = useAuth();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isInIframe, setIsInIframe] = useState(false);
+
+  useEffect(() => {
+    setIsInIframe(window.self !== window.top);
+  }, []);
 
   const handleGoogleLogin = async () => {
     setIsLoggingIn(true);
@@ -24,8 +29,8 @@ export default function Login() {
       const msg = error.message || '';
       if (msg.includes('popup-blocked')) {
         toast.error('Popup diblokir! Silakan izinkan popup di browser Anda.');
-      } else if (msg.includes('Cookie diblokir')) {
-        toast.error(msg, { duration: 10000 });
+      } else if (msg.includes('Tab Baru') || msg.includes('Iframe')) {
+        toast.error(msg, { duration: 15000 });
       } else {
         toast.error('Gagal masuk: ' + (error.message || 'Error tidak diketahui'));
       }
@@ -69,6 +74,12 @@ export default function Login() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          {isInIframe && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-2">
+              ⚠️ <strong>PENTING:</strong> Karena batasan browser di dalam preview, login mungkin gagal. 
+              Gunakan ikon <strong>Open in New Tab</strong> di pojok kanan atas aplikasi untuk login yang lancar.
+            </div>
+          )}
           <Button 
             variant="outline" 
             className="w-full h-12" 
