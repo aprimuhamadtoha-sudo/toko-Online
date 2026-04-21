@@ -49,7 +49,16 @@ const ProtectedRoute = ({ children, adminOnly = false }: { children: React.React
     }
   }, [user, loading, profile]);
 
-  if (loading) return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-blue-200 to-blue-50 flex items-center justify-center p-4">
+        <div className="bg-white/80 backdrop-blur-sm p-8 rounded-2xl shadow-xl text-center space-y-4">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-blue-900 font-medium">Sedang memuat sistem...</p>
+        </div>
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/login" />;
   if (adminOnly && !isAdmin) return <Navigate to="/" />;
 

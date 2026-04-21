@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { createContext, useContext, useEffect, useState } from 'react';
-import { auth } from './firebase';
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { auth, db } from './firebase';
+import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 interface UserProfile {
   id: string;
@@ -35,95 +36,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchSession = async () => {
-    try {
-      const res = await fetch('/api/auth/session', { credentials: 'include' });
-      if (res.ok) {
-        const text = await res.text();
-        try {
-          const data = JSON.parse(text);
-          setSession(data && data.user ? data : null);
-        } catch (e) {
-          console.error("Non-JSON session response:", text);
-          setSession(null);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch session', err);
-      setSession(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchSession();
-  }, []);
-
-  const getCsrfToken = async () => {
-    try {
-      const res = await fetch('/api/auth/csrf', { credentials: 'include' });
-      const text = await res.text();
-      try {
-        const { csrfToken } = JSON.parse(text);
-        return csrfToken;
-      } catch (err) {
-        console.error("Non-JSON CSRF response:", text);
-        if (text.includes("<!DOCTYPE") || text.includes("<html")) {
-          throw new Error("Sistem keamanan diblokir oleh browser (Iframe Policy). Silakan buka aplikasi di Tab Baru (ikon kotak panah di pojok kanan atas preview).");
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      console.log("[AuthContext] onAuthStateChanged:", !!user);
+      if (user) {
+        let role = 'buyer';
+        try {
+          // fetch role from firestore
+          const userRef = doc(db, 'users', user.uid);
+          const userDoc = await getDoc(userRef);
+          
+          if (userDoc.exists()) {
+            role = userDoc.data().role || 'buyer';
+          } else {
+            if (user.email === 'aprimuhamadtoha@gmail.com') role = 'admin';
+            await setDoc(userRef, {
+              id: user.uid,
+              email: user.email,
+              name: user.displayName,
+              image: user.photoURL,
+              role
+            }, { merge: true });
+          }
+        } catch (err) {
+          console.error("[AuthContext] Failed to get user role:", err);
+          if (user.email === 'aprimuhamadtoha@gmail.com') role = 'admin';
         }
-        throw new Error("Gagal sistem keamanan (CSRF Parser). Silakan refresh halaman.");
+        
+        setSession({
+          user: {
+            id: user.uid,
+            uid: user.uid,
+            email: user.email,
+            name: user.displayName,
+            image: user.photoURL,
+            role
+          }
+        });
+      } else {
+        setSession(null);
       }
-    } catch (err: any) {
-      console.error("CSRF Fetch Failure:", err);
-      if (err.message === "Failed to fetch") {
-        throw new Error("Koneksi ke server terputus. Pastikan server sudah berjalan atau buka aplikasi di Tab Baru.");
-      }
-      throw err;
-    }
-  };
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
 
   const signIn = async () => {
     const provider = new GoogleAuthProvider();
     try {
       console.log("Starting Firebase signInWithPopup...");
-      const result = await signInWithPopup(auth, provider);
-      console.log("Firebase popup success. Getting ID token...");
-      const idToken = await result.user.getIdToken();
-      
-      console.log("Fetching CSRF token...");
-      const csrfToken = await getCsrfToken();
-      console.log("CSRF Token obtained:", !!csrfToken);
-
-      if (!csrfToken) {
-        throw new Error("Cookie diblokir oleh browser (CSRF Error). Silakan klik tombol 'Buka di Tab Baru' di pojok kanan atas preview aplikasi untuk login.");
-      }
-
-      // Sign in via Auth.js credentials provider
-      console.log("Submitting to Auth.js (/api/auth/callback/firebase)...");
-      const res = await fetch('/api/auth/callback/firebase', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          idToken,
-          csrfToken,
-          json: 'true',
-        }),
-        credentials: 'include'
-      });
-
-      console.log("Auth.js status:", res.status);
-      if (res.ok) {
-        console.log("Auth.js success logic");
-        await fetchSession();
-      } else {
-        const errorText = await res.text();
-        console.error("Auth.js signin error:", errorText);
-        if (res.status === 403) {
-          throw new Error("Cookie diblokir oleh browser. Silakan klik tombol 'Buka di Tab Baru' di pojok kanan atas preview.");
-        }
-        throw new Error(`Gagal verifikasi di server: ${res.status}`);
-      }
+      await signInWithPopup(auth, provider);
+      console.log("Firebase popup success.");
     } catch (error: any) {
       console.error('SignIn Process Error:', error);
       throw error;
@@ -132,13 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = async () => {
     try {
-      const csrfToken = await getCsrfToken();
-      await fetch('/api/auth/signout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ csrfToken }),
-      });
-      await auth.signOut();
+      await firebaseSignOut(auth);
       setSession(null);
     } catch (error) {
       console.error('Sign out error:', error);

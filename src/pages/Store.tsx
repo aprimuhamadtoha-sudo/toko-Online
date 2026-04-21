@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, getDocs } from 'firebase/firestore';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -26,12 +26,12 @@ export default function Store() {
   useEffect(() => {
     const fetchProducts = async () => {
       try {
-        const response = await fetch('/api/products');
-        if (!response.ok) throw new Error('Failed to fetch');
-        const data = await response.json();
-        setProducts(data.map((p: any) => ({
+        const q = query(collection(db, 'products'), orderBy('name', 'asc'));
+        const snapshot = await getDocs(q);
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as Product }));
+        setProducts(data.map(p => ({
           ...p,
-          imageURL: p.image_url,
+          imageURL: (p as any).image_url || p.imageURL,
           price: Number(p.price)
         })));
       } catch (err) {

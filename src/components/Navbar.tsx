@@ -56,10 +56,15 @@ export default function Navbar() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const response = await fetch('/api/settings/store');
-        const data = await response.json();
-        if (data) {
-          setStoreSettings(data);
+        const docRef = doc(db, 'settings', 'store');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data().value;
+          setStoreSettings({
+            name: data?.name || 'Store',
+            address: data?.address || '',
+            logoURL: data?.logoURL || ''
+          });
         }
       } catch (err) {
         console.error(err);

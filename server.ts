@@ -2,63 +2,50 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import dotenv from "dotenv";
+import cookieParser from "cookie-parser";
 import { ExpressAuth, getSession } from "@auth/express";
 import Google from "@auth/express/providers/google";
-import { PrismaAdapter } from "@auth/prisma-adapter";
+import { FirestoreAdapter } from "@auth/firebase-adapter";
 import Credentials from "@auth/express/providers/credentials";
 import admin from "firebase-admin";
+import { getFirestore } from 'firebase-admin/firestore';
 import fs from "fs";
-import { PrismaClient } from "@prisma/client";
-
-// Initialize Prisma
-const prisma = new PrismaClient();
 
 // Load ENV
 dotenv.config();
 
-// Initialize Firebase Admin with Safety
+// Initialize Firebase Admin
+const fbConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
+const fbConfigValues = JSON.parse(fs.readFileSync(fbConfigPath, "utf-8"));
+
+const firebaseApp = !admin.apps.length ? admin.initializeApp({
+  projectId: fbConfigValues.projectId,
+}) : admin.apps[0];
+
+let db;
 try {
-  const fbConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
-  if (fs.existsSync(fbConfigPath)) {
-    const fbConfigValues = JSON.parse(fs.readFileSync(fbConfigPath, "utf-8"));
-    if (!admin.apps.length) {
-      admin.initializeApp({
-        projectId: fbConfigValues.projectId,
-      });
-      console.log("Firebase Admin initialized for project:", fbConfigValues.projectId);
-    }
-  } else {
-    console.warn("Firebase config not found at:", fbConfigPath);
-  }
-} catch (error) {
-  console.error("Critical: Failed to initialize Firebase Admin:", error);
+  // Use the specific database ID if provided in config
+  db = fbConfigValues.firestoreDatabaseId 
+    ? getFirestore(firebaseApp, fbConfigValues.firestoreDatabaseId)
+    : getFirestore(firebaseApp);
+} catch (e) {
+  console.warn("Failed to initialize firestore with specific database ID, falling back to default.", e);
+  db = getFirestore(firebaseApp);
 }
 
 /**
  * PETUNJUK PENGISIAN DATA ENV:
- * 
- * 1. AUTH_SECRET: 
- *    Gunakan string acak panjang (minimal 32 karakter).
- *    Contoh: run 'openssl rand -base64 32' di terminal.
- * 
- * 2. AUTH_GOOGLE_ID & AUTH_GOOGLE_SECRET:
- *    Dapatkan dari Google Cloud Console (https://console.cloud.google.com/apis/credentials)
- *    - Buat "OAuth client ID" tipe "Web application".
- *    - Authorized JavaScript origins: 
- *      https://ais-dev-66wsfdjubpyew52uiqb3rd-715587387761.asia-east1.run.app
- *      https://ais-pre-66wsfdjubpyew52uiqb3rd-715587387761.asia-east1.run.app
- *    - Authorized redirect URIs:
- *      https://ais-dev-66wsfdjubpyew52uiqb3rd-715587387761.asia-east1.run.app/api/auth/callback/google
- *      https://ais-pre-66wsfdjubpyew52uiqb3rd-715587387761.asia-east1.run.app/api/auth/callback/google
+ * 1. AUTH_SECRET: Minimal 32 karakter
+ * 2. AUTH_GOOGLE_ID & AUTH_GOOGLE_SECRET (Sudah dikonfigurasi)
  */
 
 // Auth.js Configuration
 const authConfig: any = {
   basePath: "/api/auth",
   trustHost: true,
-  debug: process.env.NODE_ENV !== "production",
+  debug: false,
   secret: process.env.AUTH_SECRET || "66wsfdjubpyew52uiqb3rd-715587387761-auth-secret-123",
-  adapter: PrismaAdapter(prisma),
+  adapter: FirestoreAdapter(db),
   providers: [
     Google({
       clientId: process.env.AUTH_GOOGLE_ID,
@@ -80,27 +67,30 @@ const authConfig: any = {
           const picture = decodedToken.picture || '';
 
           const isOwner = email === 'aprimuhamadtoha@gmail.com';
+          const role = isOwner ? 'admin' : 'buyer';
           
-          if (email) {
-            const user = await prisma.user.upsert({
-              where: { email: email },
-              update: {
-                id: uid,
-                name: name,
-                image: picture,
-                role: isOwner ? 'admin' : 'buyer'
-              },
-              create: {
-                id: uid,
-                email: email,
-                name: name,
-                image: picture,
-                role: isOwner ? 'admin' : 'buyer'
-              }
+          const userRef = db.collection('users').doc(uid);
+          const userDoc = await userRef.get();
+          
+          const userData = {
+            id: uid,
+            email,
+            name,
+            image: picture,
+            role,
+          };
+
+          if (!userDoc.exists) {
+            await userRef.set(userData);
+          } else {
+            await userRef.update({
+              name,
+              image: picture,
+              role,
             });
-            return user;
           }
-          return null;
+          
+          return userData;
         } catch (error) {
           console.error("Authorize Bridge Error:", error);
           return null;
@@ -165,7 +155,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  app.use(cookieParser());
   app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
   app.use((req, res, next) => {
     if (req.url.startsWith('/api')) {
@@ -176,25 +168,27 @@ async function startServer() {
 
   app.get("/api/auth/session", async (req, res) => {
     try {
+      console.log("[AUTH] Fetching session...");
       const session = await getSession(req, authConfig);
       res.json(session || {});
     } catch (err) {
-      console.error("Session Error:", err);
-      res.status(500).json({ error: "Session Error" });
+      console.error("[AUTH] Session error:", err);
+      res.json({}); 
     }
   });
 
   app.use("/api/auth", ExpressAuth(authConfig));
 
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", db: !!process.env.DATABASE_URL });
+    res.json({ status: "ok", firebase: true });
   });
 
-  // REST API Routes
+  // REST API Routes using Firestore
   app.get("/api/products", async (req, res) => {
     try {
-      const result = await prisma.product.findMany({ orderBy: { name: 'asc' } });
-      res.json(result);
+      const snapshot = await db.collection('products').orderBy('name', 'asc').get();
+      const products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(products);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -203,18 +197,20 @@ async function startServer() {
   app.post("/api/products", async (req, res) => {
     const { name, category, price, purchasePrice, stock, description, imageURL } = req.body;
     try {
-      const result = await prisma.product.create({
-        data: {
-          name,
-          category,
-          price: Number(price) || 0,
-          purchasePrice: Number(purchasePrice) || 0,
-          stock: Number(stock) || 0,
-          description,
-          imageUrl: imageURL
-        }
-      });
-      res.status(201).json(result);
+      const productData = {
+        name,
+        category,
+        price: Number(price) || 0,
+        purchasePrice: Number(purchasePrice) || 0,
+        stock: Number(stock) || 0,
+        sold: 0,
+        description,
+        image_url: imageURL,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      const docRef = await db.collection('products').add(productData);
+      res.status(201).json({ id: docRef.id, ...productData });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -223,19 +219,18 @@ async function startServer() {
   app.put("/api/products/:id", async (req, res) => {
     const { name, category, price, purchasePrice, stock, description, imageURL } = req.body;
     try {
-      const result = await prisma.product.update({
-        where: { id: req.params.id },
-        data: {
-          name,
-          category,
-          price: Number(price) || 0,
-          purchasePrice: Number(purchasePrice) || 0,
-          stock: Number(stock) || 0,
-          description,
-          imageUrl: imageURL
-        }
-      });
-      res.json(result);
+      const updateData: any = {
+        name,
+        category,
+        price: Number(price) || 0,
+        purchasePrice: Number(purchasePrice) || 0,
+        stock: Number(stock) || 0,
+        description,
+        image_url: imageURL,
+        updatedAt: new Date().toISOString()
+      };
+      await db.collection('products').doc(req.params.id).update(updateData);
+      res.json({ id: req.params.id, ...updateData });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -243,7 +238,7 @@ async function startServer() {
 
   app.delete("/api/products/:id", async (req, res) => {
     try {
-      await prisma.product.delete({ where: { id: req.params.id } });
+      await db.collection('products').doc(req.params.id).delete();
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -252,8 +247,8 @@ async function startServer() {
 
   app.get("/api/settings/:id", async (req, res) => {
     try {
-      const result = await prisma.setting.findUnique({ where: { id: req.params.id } });
-      res.json(result?.value || null);
+      const doc = await db.collection('settings').doc(req.params.id).get();
+      res.json(doc.exists ? doc.data()?.value : null);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -261,11 +256,7 @@ async function startServer() {
 
   app.post("/api/settings/:id", async (req, res) => {
     try {
-      await prisma.setting.upsert({
-        where: { id: req.params.id },
-        update: { value: req.body },
-        create: { id: req.params.id, value: req.body }
-      });
+      await db.collection('settings').doc(req.params.id).set({ value: req.body }, { merge: true });
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -274,7 +265,27 @@ async function startServer() {
 
   app.get("/api/users", async (req, res) => {
     try {
-      res.json(await prisma.user.findMany());
+      const snapshot = await db.collection('users').get();
+      const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(users);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post("/api/users", async (req, res) => {
+    const { id, email, role } = req.body;
+    try {
+      if (id) {
+        await db.collection('users').doc(id).update({ role });
+      } else if (email) {
+        const lowerEmail = email.toLowerCase().trim();
+        const snapshot = await db.collection('users').where('email', '==', lowerEmail).limit(1).get();
+        if (!snapshot.empty) {
+          await db.collection('users').doc(snapshot.docs[0].id).update({ role });
+        }
+      }
+      res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -282,7 +293,9 @@ async function startServer() {
 
   app.get("/api/visitors", async (req, res) => {
     try {
-      res.json(await prisma.visitor.findMany({ orderBy: { lastSeen: 'desc' } }));
+      const snapshot = await db.collection('visitors').orderBy('lastSeen', 'desc').get();
+      const visitors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(visitors);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -291,11 +304,19 @@ async function startServer() {
   app.post("/api/visitors", async (req, res) => {
     const { email, name, timestamp, lastSeen } = req.body;
     try {
-      await prisma.visitor.upsert({
-        where: { email },
-        update: { lastSeen },
-        create: { email, name, timestamp, lastSeen }
-      });
+      // Find visitor by email or create new
+      const snapshot = await db.collection('visitors').where('email', '==', email).limit(1).get();
+      if (!snapshot.empty) {
+        const docId = snapshot.docs[0].id;
+        await db.collection('visitors').doc(docId).update({ lastSeen });
+      } else {
+        await db.collection('visitors').add({
+          email,
+          name,
+          timestamp,
+          lastSeen
+        });
+      }
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -305,10 +326,13 @@ async function startServer() {
   app.get("/api/orders", async (req, res) => {
     const { userId } = req.query;
     try {
-      res.json(await prisma.order.findMany({
-        where: userId ? { buyerId: String(userId) } : {},
-        orderBy: { createdAt: 'desc' }
-      }));
+      let query = db.collection('orders').orderBy('createdAt', 'desc');
+      if (userId) {
+        query = query.where('buyerId', '==', userId);
+      }
+      const snapshot = await query.get();
+      const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(orders);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -317,10 +341,16 @@ async function startServer() {
   app.post("/api/orders", async (req, res) => {
     const { buyerId, buyerName, totalAmount, items } = req.body;
     try {
-      const result = await prisma.order.create({
-        data: { buyerId, buyerName, totalAmount: Number(totalAmount) || 0, items }
-      });
-      res.status(201).json(result);
+      const orderData = {
+        buyerId,
+        buyerName,
+        totalAmount: Number(totalAmount) || 0,
+        items,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      };
+      const docRef = await db.collection('orders').add(orderData);
+      res.status(201).json({ id: docRef.id, ...orderData });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -328,19 +358,31 @@ async function startServer() {
 
   app.get("/api/dashboard/stats", async (req, res) => {
     try {
-      const totalProductsCount = await prisma.product.count();
-      const totalSoldSum = await prisma.product.aggregate({ _sum: { sold: true } });
-      const orderStats = await prisma.order.aggregate({ _count: { _all: true }, _sum: { totalAmount: true } });
-      const totalUsers = await prisma.user.count();
-      const totalVisitors = await prisma.visitor.count();
+      const productsCount = (await db.collection('products').count().get()).data().count;
+      const ordersCount = (await db.collection('orders').count().get()).data().count;
+      const usersCount = (await db.collection('users').count().get()).data().count;
+      const visitorsCount = (await db.collection('visitors').count().get()).data().count;
+
+      const ordersSnapshot = await db.collection('orders').get();
+      let totalRevenue = 0;
+      ordersSnapshot.forEach(doc => {
+        totalRevenue += Number(doc.data().totalAmount || 0);
+      });
+
+      const productsSnapshot = await db.collection('products').get();
+      let totalSold = 0;
+      productsSnapshot.forEach(doc => {
+        totalSold += Number(doc.data().sold || 0);
+      });
+      
       res.json({
-        totalProducts: totalProductsCount,
-        totalSold: totalSoldSum._sum.sold || 0,
-        totalOrders: orderStats._count._all,
-        totalRevenue: Number(orderStats._sum.totalAmount || 0),
-        totalUsers: totalUsers,
-        totalVisitors: totalVisitors,
-        totalProfit: Number(orderStats._sum.totalAmount || 0) * 0.3
+        totalProducts: productsCount,
+        totalSold: totalSold,
+        totalOrders: ordersCount,
+        totalRevenue: totalRevenue,
+        totalUsers: usersCount,
+        totalVisitors: visitorsCount,
+        totalProfit: totalRevenue * 0.3
       });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -351,25 +393,40 @@ async function startServer() {
     try {
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const orders = await prisma.order.findMany({
-        where: { createdAt: { gte: sevenDaysAgo } },
-        select: { createdAt: true, totalAmount: true }
-      });
+      
+      const ordersSnapshot = await db.collection('orders')
+        .where('createdAt', '>=', sevenDaysAgo.toISOString())
+        .get();
+
       const salesMap: Record<string, number> = {};
-      orders.forEach(o => {
-        const day = o.createdAt.toLocaleDateString('en-US', { weekday: 'short' });
-        salesMap[day] = (salesMap[day] || 0) + Number(o.totalAmount);
+      ordersSnapshot.forEach(doc => {
+        const data = doc.data();
+        const date = new Date(data.createdAt);
+        const day = date.toLocaleDateString('en-US', { weekday: 'short' });
+        salesMap[day] = (salesMap[day] || 0) + Number(data.totalAmount || 0);
       });
-      const salesData = Object.entries(salesMap).map(([name, sales]) => ({ name, sales }));
-      const categoryData = await prisma.product.groupBy({
-        by: ['category'],
-        _sum: { sold: true },
-        orderBy: { _sum: { sold: 'desc' } },
-        take: 5
+
+      const salesData = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(name => ({
+        name,
+        sales: salesMap[name] || 0
+      }));
+
+      const categoryMap: Record<string, number> = {};
+      const productsSnapshot = await db.collection('products').get();
+      productsSnapshot.forEach(doc => {
+        const data = doc.data();
+        const cat = data.category || 'Lainnya';
+        categoryMap[cat] = (categoryMap[cat] || 0) + Number(data.sold || 0);
       });
+
+      const categoryData = Object.entries(categoryMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, value]) => ({ name, value }));
+
       res.json({
         salesData,
-        categoryData: categoryData.map(c => ({ name: c.category || 'Lainnya', value: c._sum.sold || 0 }))
+        categoryData
       });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -379,11 +436,20 @@ async function startServer() {
   app.post("/api/admin/promote", async (req, res) => {
     const { email } = req.body;
     try {
-      await prisma.user.upsert({
-        where: { email: email.toLowerCase().trim() },
-        update: { role: 'admin' },
-        create: { id: email.toLowerCase().trim(), email: email.toLowerCase().trim(), role: 'admin', name: 'Pending Admin' }
-      });
+      const lowerEmail = email.toLowerCase().trim();
+      const snapshot = await db.collection('users').where('email', '==', lowerEmail).limit(1).get();
+      if (!snapshot.empty) {
+        const docId = snapshot.docs[0].id;
+        await db.collection('users').doc(docId).update({ role: 'admin' });
+      } else {
+        // Create skeleton profile
+        await db.collection('users').add({
+          email: lowerEmail,
+          role: 'admin',
+          name: 'Pending Admin',
+          createdAt: new Date().toISOString()
+        });
+      }
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -393,8 +459,16 @@ async function startServer() {
   app.get("/api/users/:userId/unread-counts", async (req, res) => {
     const { userId } = req.params;
     try {
-      const ordersCount = await prisma.order.count({ where: { buyerId: userId, status: 'pending' } });
-      res.json({ orders: ordersCount, chats: 0, notifications: 0 });
+      const ordersCount = (await db.collection('orders')
+        .where('buyerId', '==', userId)
+        .where('status', '==', 'pending')
+        .count().get()).data().count;
+
+      res.json({
+        orders: ordersCount,
+        chats: 0,
+        notifications: 0
+      });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
