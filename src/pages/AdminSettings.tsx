@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc, onSnapshot, addDoc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Trash2, ShieldCheck, UserPlus } from 'lucide-react';
+import { Trash2, ShieldCheck, UserPlus, Upload, Image as ImageIcon } from 'lucide-react';
 
 const OWNER_EMAIL = 'aprimuhamadtoha@gmail.com';
 
@@ -66,6 +66,23 @@ export default function AdminSettings() {
       console.error('Error saving settings:', error);
       toast.error('Gagal memperbarui pengaturan');
     }
+  };
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 1024 * 1024) { // 1MB limit for logo
+      toast.error("Ukuran file terlalu besar (Maks 1MB)");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setSettings(prev => ({ ...prev, logoURL: reader.result as string }));
+      toast.success("Logo berhasil diunggah");
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleAddAdmin = async () => {
@@ -148,8 +165,52 @@ export default function AdminSettings() {
               <Input value={settings.address} onChange={e => setSettings({...settings, address: e.target.value})} />
             </div>
             <div className="space-y-2">
-              <Label>URL Logo</Label>
-              <Input value={settings.logoURL} onChange={e => setSettings({...settings, logoURL: e.target.value})} />
+              <Label>Logo Toko</Label>
+              <div className="flex flex-col gap-4">
+                <div className="relative w-32 h-32 rounded-xl border-2 border-dashed border-muted-foreground/20 overflow-hidden bg-muted/30 group">
+                  {settings.logoURL ? (
+                    <>
+                      <img src={settings.logoURL} alt="Logo Preview" className="w-full h-full object-contain" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Button 
+                          size="icon" 
+                          variant="ghost" 
+                          className="text-white hover:text-red-400"
+                          onClick={() => setSettings({...settings, logoURL: ''})}
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <div 
+                      className="flex flex-col items-center justify-center h-full cursor-pointer hover:bg-muted/50 transition-colors"
+                      onClick={() => document.getElementById('logo-upload')?.click()}
+                    >
+                      <ImageIcon className="w-8 h-8 text-muted-foreground/30 mb-2" />
+                      <span className="text-[10px] text-muted-foreground font-medium text-center px-2">Klik untuk Unggah Logo</span>
+                    </div>
+                  )}
+                  <input 
+                    type="file" 
+                    id="logo-upload" 
+                    className="hidden" 
+                    accept="image/*"
+                    onChange={handleLogoUpload}
+                  />
+                </div>
+                {!settings.logoURL && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-fit"
+                    onClick={() => document.getElementById('logo-upload')?.click()}
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Pilih File Logo
+                  </Button>
+                )}
+              </div>
             </div>
             <Button onClick={handleSaveSettings} className="w-full">Simpan Identitas</Button>
           </CardContent>

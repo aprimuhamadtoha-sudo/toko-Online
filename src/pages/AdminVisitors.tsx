@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, getDocs } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Users, RefreshCw } from 'lucide-react';
+import { Users, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+
+const OWNER_EMAIL = 'aprimuhamadtoha@gmail.com';
 
 interface Visitor {
   id: string;
@@ -13,6 +15,7 @@ interface Visitor {
   name: string;
   timestamp: string;
   lastSeen?: string;
+  role?: string;
 }
 
 export default function AdminVisitors() {
@@ -20,41 +23,74 @@ export default function AdminVisitors() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, 'visitors'), orderBy('lastSeen', 'desc'));
-    const unsub = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ 
-        id: doc.id, 
-        ...doc.data() 
-      })) as Visitor[];
-      setVisitors(data);
-      setLoading(false);
-    }, (err) => {
-      console.error('Error syncing visitors:', err);
-      // Fallback to non-ordered if index is missing
-      if (err.message.includes('requires an index')) {
-        onSnapshot(collection(db, 'visitors'), (snap) => {
-          setVisitors(snap.docs.map(d => ({ id: d.id, ...d.data() } as Visitor)));
+    let isActive = true;
+    let unsubListener: (() => void) | undefined;
+
+    const fetchAdminsAndFilter = async () => {
+      try {
+        const usersSnap = await getDocs(collection(db, 'users'));
+        if (!isActive) return;
+
+        const adminEmails = new Set(
+          usersSnap.docs
+            .map(d => d.data() as any)
+            .filter(u => u.role === 'admin' || u.email?.toLowerCase() === OWNER_EMAIL)
+            .map(u => u.email?.toLowerCase())
+        );
+
+        const q = query(collection(db, 'visitors'), orderBy('lastSeen', 'desc'));
+        unsubListener = onSnapshot(q, (snapshot) => {
+          if (!isActive) return;
+          const data = snapshot.docs
+            .map(doc => ({ 
+              id: doc.id, 
+              ...doc.data() 
+            })) as Visitor[];
+          
+          const adminLogs = data.filter(v => adminEmails.has(v.email?.toLowerCase()));
+          setVisitors(adminLogs);
           setLoading(false);
+        }, (err) => {
+          if (!isActive) return;
+          console.error('Error syncing visitors:', err);
+          if (err.message.includes('requires an index')) {
+            onSnapshot(collection(db, 'visitors'), (snap) => {
+              if (!isActive) return;
+              const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as Visitor));
+              setVisitors(all.filter(v => adminEmails.has(v.email?.toLowerCase())));
+              setLoading(false);
+            });
+          }
         });
+      } catch (error) {
+        if (!isActive) return;
+        console.error('Error in AdminVisitors:', error);
+        setLoading(false);
       }
-    });
-    return () => unsub();
+    };
+
+    fetchAdminsAndFilter();
+
+    return () => {
+      isActive = false;
+      if (unsubListener) unsubListener();
+    };
   }, []);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Log Pengunjung</h1>
-          <p className="text-muted-foreground">Daftar pengguna yang telah mengakses toko ini secara real-time</p>
+          <h1 className="text-3xl font-bold tracking-tight">Log Aktivitas Admin</h1>
+          <p className="text-muted-foreground">Catatan login dan akses pengguna dengan hak administrator</p>
         </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="w-5 h-5" />
-            Total Pengunjung: {visitors.length}
+          <CardTitle className="flex items-center gap-2 text-blue-600">
+            <ShieldCheck className="w-5 h-5" />
+            Total Admin Terdeteksi: {visitors.length}
           </CardTitle>
         </CardHeader>
         <CardContent>

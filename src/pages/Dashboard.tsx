@@ -46,14 +46,21 @@ export default function Dashboard() {
           return sum + (o.items?.reduce((iSum: number, item: any) => iSum + item.quantity, 0) || 0);
         }, 0);
 
+        const visitors = visitorsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        // Unique counts
+        const uniqueVisitorsEmails = new Set(visitors.map((v: any) => v.email?.toLowerCase()));
+        const uniqueUsersEmails = new Set(users.map((u: any) => u.email?.toLowerCase()));
+
         setStats({
           totalRevenue,
           totalProfit,
           totalOrders: ordersSnap.size, // Still show total order count
           totalProducts: productsSnap.size,
-          totalUsers: usersSnap.size,
+          totalUsers: uniqueUsersEmails.size,
           totalSold,
-          totalVisitors: visitorsSnap.size
+          totalVisitors: uniqueVisitorsEmails.size
         });
 
         // Charts Data (simplified)
