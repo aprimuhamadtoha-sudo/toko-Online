@@ -68,10 +68,22 @@ const authConfig: any = {
           const picture = decodedToken.picture || '';
 
           const isOwner = email === 'aprimuhamadtoha@gmail.com';
-          const role = isOwner ? 'admin' : 'buyer';
           
+          let role = 'buyer';
           const userRef = db.collection('users').doc(uid);
           const userDoc = await userRef.get();
+
+          if (isOwner) {
+            role = 'admin';
+          } else if (userDoc.exists) {
+            role = userDoc.data()?.role || 'buyer';
+          } else {
+            // Check for pending admin by email
+            const pendingSnapshot = await db.collection('users').where('email', '==', email).limit(1).get();
+            if (!pendingSnapshot.empty) {
+              role = pendingSnapshot.docs[0].data()?.role || 'buyer';
+            }
+          }
           
           const userData = {
             id: uid,
@@ -335,6 +347,7 @@ async function startServer() {
       const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       res.json(orders);
     } catch (err) {
+      console.error("[API] Error fetching orders:", err);
       res.status(500).json({ error: (err as Error).message });
     }
   });
@@ -342,9 +355,14 @@ async function startServer() {
   app.post("/api/orders", async (req, res) => {
     const { buyerId, buyerName, totalAmount, items } = req.body;
     try {
+      // Basic validation
+      if (!buyerId || !items || !Array.isArray(items)) {
+        return res.status(400).json({ error: "Missing required order information (buyerId, items)" });
+      }
+
       const orderData = {
         buyerId,
-        buyerName,
+        buyerName: buyerName || 'Pelanggan',
         totalAmount: Number(totalAmount) || 0,
         items,
         status: 'pending',
@@ -353,6 +371,7 @@ async function startServer() {
       const docRef = await db.collection('orders').add(orderData);
       res.status(201).json({ id: docRef.id, ...orderData });
     } catch (err) {
+      console.error("[API] Error creating order:", err);
       res.status(500).json({ error: (err as Error).message });
     }
   });
@@ -434,21 +453,38 @@ async function startServer() {
     }
   });
 
-  app.post("/api/admin/promote", async (req, res) => {
-    const { email } = req.body;
+  app.get("/api/visitors", async (req, res) => {
     try {
-      const lowerEmail = email.toLowerCase().trim();
-      const snapshot = await db.collection('users').where('email', '==', lowerEmail).limit(1).get();
-      if (!snapshot.empty) {
-        const docId = snapshot.docs[0].id;
-        await db.collection('users').doc(docId).update({ role: 'admin' });
+      const snapshot = await db.collection('visitors').orderBy('lastSeen', 'desc').limit(100).get();
+      const visitors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(visitors);
+    } catch (err) {
+      // Fallback if index missing
+      const snapshot = await db.collection('visitors').limit(100).get();
+      const visitors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(visitors);
+    }
+  });
+
+  app.post("/api/visitors", async (req, res) => {
+    const { email, name, timestamp, lastSeen } = req.body;
+    try {
+      const querySnapshot = await db.collection('visitors').where('email', '==', email).limit(1).get();
+      
+      if (!querySnapshot.empty) {
+        const docId = querySnapshot.docs[0].id;
+        await db.collection('visitors').doc(docId).update({
+          name,
+          lastSeen: lastSeen || timestamp,
+          visitCount: admin.firestore.FieldValue.increment(1)
+        });
       } else {
-        // Create skeleton profile
-        await db.collection('users').add({
-          email: lowerEmail,
-          role: 'admin',
-          name: 'Pending Admin',
-          createdAt: new Date().toISOString()
+        await db.collection('visitors').add({
+          email,
+          name,
+          timestamp,
+          lastSeen: lastSeen || timestamp,
+          visitCount: 1
         });
       }
       res.json({ success: true });

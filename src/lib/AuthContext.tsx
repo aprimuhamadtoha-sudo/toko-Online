@@ -2,7 +2,7 @@ import * as React from 'react';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from './firebase';
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, query, collection, where, limit, getDocs } from 'firebase/firestore';
 
 interface UserProfile {
   id: string;
@@ -44,19 +44,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           // fetch role from firestore
           const userRef = doc(db, 'users', user.uid);
-          const userDoc = await getDoc(userRef);
+          let userDoc = await getDoc(userRef);
           
-          if (userDoc.exists()) {
-            role = userDoc.data().role || 'buyer';
-          } else {
+          if (!userDoc.exists()) {
+            // Check for pending admin role by email
+            const q = query(collection(db, 'users'), where('email', '==', user.email?.toLowerCase().trim()), limit(1));
+            const querySnap = await getDocs(q);
+            if (querySnap && !querySnap.empty && querySnap.docs.length > 0) {
+              const pendingDoc = querySnap.docs[0];
+              const pendingData = pendingDoc.data();
+              role = pendingData.role || 'buyer';
+              
+              // We'll create the new UID-based document with this role.
+              // We could also delete the pendingDoc but safety first.
+            }
+
             if (user.email === 'aprimuhamadtoha@gmail.com') role = 'admin';
+            
             await setDoc(userRef, {
+              uid: user.uid,
               id: user.uid,
               email: user.email,
               name: user.displayName,
               image: user.photoURL,
               role
             }, { merge: true });
+          } else {
+            role = userDoc.data().role || 'buyer';
+            // Force owner role if somehow reset
+            if (user.email === 'aprimuhamadtoha@gmail.com') role = 'admin';
           }
         } catch (err) {
           console.error("[AuthContext] Failed to get user role:", err);

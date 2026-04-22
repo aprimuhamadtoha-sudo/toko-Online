@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc, onSnapshot, addDoc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -73,31 +73,30 @@ export default function AdminSettings() {
     const email = newAdminEmail.toLowerCase().trim();
     
     try {
-      const response = await fetch('/api/admin/promote', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
+      // 1. Search for existing user by email
+      const q = query(collection(db, 'users'), where('email', '==', email));
+      const querySnap = await getDocs(q);
       
-      if (!response.ok) throw new Error('Failed to promote');
+      if (querySnap && !querySnap.empty && querySnap.docs.length > 0) {
+        // User exists, update role
+        const userDoc = querySnap.docs[0];
+        await updateDoc(doc(db, 'users', userDoc.id), { role: 'admin' });
+      } else {
+        // User doesn't exist, create skeleton with random ID
+        await addDoc(collection(db, 'users'), {
+          email,
+          role: 'admin',
+          name: 'Pending Admin',
+          uid: 'pending_' + Math.random().toString(36).substr(2, 9),
+          createdAt: new Date().toISOString()
+        });
+      }
 
       toast.success(`${email} sekarang menjadi Admin`);
       setNewAdminEmail('');
-      
-      // Refresh user list
-      const usersRes = await fetch('/api/users').then(res => res.json());
-      if (usersRes && Array.isArray(usersRes)) {
-        const adminList = usersRes
-          .filter((u: any) => u.role === 'admin' && u.email.toLowerCase() !== OWNER_EMAIL)
-          .map((u: any) => ({
-            uid: u.id,
-            email: u.email,
-            displayName: u.display_name || 'Admin'
-          }));
-        setAdmins(adminList);
-      }
     } catch (error) {
-      toast.error('Gagal menambahkan admin');
+      console.error('Error adding admin:', error);
+      toast.error('Gagal menambahkan admin: ' + (error instanceof Error ? error.message : 'Izin ditolak'));
     }
   };
 
@@ -110,26 +109,10 @@ export default function AdminSettings() {
     if (!confirm(`Hapus akses admin untuk ${email}?`)) return;
 
     try {
-      await fetch('/api/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: uid, email, role: 'buyer' })
-      });
-      
+      await updateDoc(doc(db, 'users', uid), { role: 'buyer' });
       toast.success('Akses admin dicabut');
-      // Refresh list
-      const usersRes = await fetch('/api/users').then(res => res.json());
-      if (usersRes && Array.isArray(usersRes)) {
-        const adminList = usersRes
-          .filter((u: any) => u.role === 'admin' && u.email.toLowerCase() !== OWNER_EMAIL)
-          .map((u: any) => ({
-            uid: u.id,
-            email: u.email,
-            displayName: u.display_name || 'Admin'
-          }));
-        setAdmins(adminList);
-      }
     } catch (error) {
+      console.error('Error removing admin:', error);
       toast.error('Gagal menghapus admin');
     }
   };

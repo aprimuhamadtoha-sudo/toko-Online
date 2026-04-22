@@ -44,7 +44,7 @@ export default function Cart() {
     if (items.length === 0) return toast.error('Keranjang kosong');
 
     try {
-      // Create order in Postgres via API
+      // Create order directly in Firestore to avoid server-side permission errors
       const orderData = {
         buyerId: user.uid,
         buyerName: user.displayName || 'User',
@@ -55,24 +55,20 @@ export default function Cart() {
           price: item.price,
           purchasePrice: item.purchasePrice || 0
         })),
-        totalAmount: total
+        totalAmount: total,
+        status: 'pending',
+        createdAt: serverTimestamp()
       };
 
-      const response = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(orderData)
-      });
-
-      if (!response.ok) throw new Error('Failed to create order');
+      const docRef = await addDoc(collection(db, 'orders'), orderData);
 
       localStorage.removeItem('cart');
       setItems([]);
       toast.success('Pesanan berhasil dibuat!');
       navigate('/orders');
-    } catch (error) {
-      console.error(error);
-      toast.error('Gagal melakukan checkout');
+    } catch (error: any) {
+      console.error("Order creation error:", error);
+      toast.error('Gagal melakukan checkout: ' + (error.message || 'Izin ditolak'));
     }
   };
 

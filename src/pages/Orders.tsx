@@ -15,34 +15,50 @@ export default function Orders() {
 
   useEffect(() => {
     if (!user) return;
-    const fetchOrders = async () => {
-      try {
-        const response = await fetch(`/api/orders?userId=${user.uid}`);
-        const data = await response.json();
-        setOrders(data.map((o: any) => ({
-          ...o,
-          totalAmount: Number(o.total_amount)
-        })));
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
+    const q = query(
+      collection(db, 'orders'),
+      where('buyerId', '==', user.uid),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsub = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => {
+        const d = doc.data();
+        return {
+          id: doc.id,
+          ...d,
+          totalAmount: Number(d.totalAmount || 0),
+          createdAt: d.createdAt
+        };
+      });
+      setOrders(data);
+      setLoading(false);
+    }, (err) => {
+      console.error("Fetch orders error:", err);
+      // If error (e.g. index missing), fallback to non-ordered
+      if (err.message.includes('requires an index')) {
+        onSnapshot(
+          query(collection(db, 'orders'), where('buyerId', '==', user.uid)),
+          (snap) => {
+            setOrders(snap.docs.map(d => ({ id: d.id, ...d.data(), totalAmount: Number((d.data() as any).totalAmount || 0) })));
+            setLoading(false);
+          }
+        );
       }
-    };
-    fetchOrders();
+    });
+
+    return () => unsub();
   }, [user]);
 
   const confirmReceipt = async (orderId: string) => {
     try {
-      await fetch(`/api/orders/${orderId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'delivered' })
-      });
+      const orderRef = doc(db, 'orders', orderId);
+      await updateDoc(orderRef, { status: 'delivered' });
       setOrders(orders.map(o => o.id === orderId ? { ...o, status: 'delivered' } : o));
       toast.success('Pesanan diterima');
-    } catch (error) {
-      toast.error('Gagal memperbarui status');
+    } catch (error: any) {
+      console.error("Confirm receipt error:", error);
+      toast.error('Gagal memperbarui status: ' + (error.message || 'Izin ditolak'));
     }
   };
 

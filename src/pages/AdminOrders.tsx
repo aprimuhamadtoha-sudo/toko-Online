@@ -11,40 +11,41 @@ export default function AdminOrders() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchOrders = async () => {
-      try {
-        const response = await fetch('/api/orders');
-        const data = await response.json();
-        setOrders(data.map((o: any) => ({
-          ...o,
-          totalAmount: Number(o.total_amount),
-          buyerId: o.buyer_id,
-          createdAt: { toDate: () => new Date(o.created_at) } // Mock Firestore date for UI compatibility
-        })));
-      } catch (err) {
-        console.error("Error fetching orders:", err);
-        toast.error("Gagal memuat data pesanan");
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchOrders();
+    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => {
+        const d = doc.data();
+        return {
+          id: doc.id,
+          ...d,
+          totalAmount: Number(d.totalAmount || 0),
+          buyerId: d.buyerId || 'Unknown',
+          createdAt: { 
+            toDate: () => {
+              if (d.createdAt?.toDate) return d.createdAt.toDate();
+              return new Date(d.createdAt || Date.now());
+            }
+          }
+        };
+      });
+      setOrders(data);
+      setLoading(false);
+    }, (err) => {
+      console.error("Orders sync error:", err);
+      toast.error("Gagal sinkronisasi pesanan");
+      setLoading(false);
+    });
+    return () => unsub();
   }, []);
 
   const updateStatus = async (orderId: string, newStatus: string) => {
     try {
-      const response = await fetch(`/api/orders/${orderId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
-      });
-      if (!response.ok) throw new Error('Failed to update status');
-      
-      setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+      const orderRef = doc(db, 'orders', orderId);
+      await updateDoc(orderRef, { status: newStatus });
       toast.success('Status pesanan diperbarui');
     } catch (error: any) {
       console.error('Error updating status:', error);
-      toast.error(`Gagal memperbarui status: ${error.message}`);
+      toast.error(`Gagal memperbarui status: ${error.message || 'Izin ditolak'}`);
     }
   };
 

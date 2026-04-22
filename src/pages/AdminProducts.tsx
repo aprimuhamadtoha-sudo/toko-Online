@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, writeBatch, query, orderBy } from 'firebase/firestore';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Pencil, Trash2, Package, RotateCcw } from 'lucide-react';
+import { Plus, Pencil, Trash2, Package, RotateCcw, ShoppingBag } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Product {
@@ -19,6 +19,7 @@ interface Product {
   sold: number;
   description: string;
   imageURL: string;
+  imageURLs?: string[];
 }
 
 export default function AdminProducts() {
@@ -34,7 +35,8 @@ export default function AdminProducts() {
     purchasePrice: 0,
     stock: 0,
     description: '',
-    imageURL: ''
+    imageURL: '',
+    imageURLs: [] as string[]
   });
 
   useEffect(() => {
@@ -53,17 +55,22 @@ export default function AdminProducts() {
 
       setProducts(sortedData.map(p => ({
         ...p,
-        imageURL: (p as any).image_url || p.imageURL,
+        imageURL: p.imageURLs?.[0] || (p as any).image_url || p.imageURL,
         purchasePrice: Number((p as any).purchasePrice || (p as any).purchase_price || 0)
       })));
+    }, (error) => {
+      console.error("Products Sync Error:", error);
+      toast.error("Gagal memuat produk: " + error.message);
     });
     return () => unsub();
   }, []);
 
   const handleSave = async () => {
     try {
+      const finalImageURL = formData.imageURLs[0] || formData.imageURL;
       const productData = {
         ...formData,
+        imageURL: finalImageURL,
         updatedAt: serverTimestamp(),
       };
 
@@ -84,11 +91,46 @@ export default function AdminProducts() {
       setIsAddOpen(false);
       setIsSuccessOpen(true);
       setEditingProduct(null);
-      setFormData({ name: '', category: '', price: 0, purchasePrice: 0, stock: 0, description: '', imageURL: '' });
+      setFormData({ name: '', category: '', price: 0, purchasePrice: 0, stock: 0, description: '', imageURL: '', imageURLs: [] });
     } catch (error) {
       console.error('Error saving product:', error);
       toast.error('Gagal menyimpan produk');
     }
+  };
+
+  const addImageUrl = () => {
+    setFormData({ ...formData, imageURLs: [...formData.imageURLs, ''] });
+  };
+
+  const removeImageUrl = (index: number) => {
+    const newUrls = [...formData.imageURLs];
+    newUrls.splice(index, 1);
+    setFormData({ ...formData, imageURLs: newUrls });
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, index?: number) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2048 * 1024) {
+      toast.error("Ukuran file terlalu besar (Maks 2MB)");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      if (index !== undefined) {
+        const newUrls = [...formData.imageURLs];
+        newUrls[index] = base64String;
+        setFormData({ ...formData, imageURLs: newUrls });
+      } else {
+        // Fallback or multi-add
+        setFormData({ ...formData, imageURLs: [...formData.imageURLs.filter(u => u !== ''), base64String] });
+      }
+      toast.success("Foto berhasil diunggah");
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleDelete = async (id: string) => {
@@ -135,13 +177,13 @@ export default function AdminProducts() {
           <DialogTrigger render={
             <Button onClick={() => {
               setEditingProduct(null);
-              setFormData({ name: '', category: '', price: 0, purchasePrice: 0, stock: 0, description: '', imageURL: '' });
+              setFormData({ name: '', category: '', price: 0, purchasePrice: 0, stock: 0, description: '', imageURL: '', imageURLs: [''] });
             }}>
               <Plus className="w-4 h-4 mr-2" />
               Tambah Produk
             </Button>
           } />
-          <DialogContent className="sm:max-w-[500px]">
+          <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingProduct ? 'Edit Produk' : 'Tambah Produk Baru'}</DialogTitle>
             </DialogHeader>
@@ -171,8 +213,62 @@ export default function AdminProducts() {
                 </div>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="imageURL">URL Gambar</Label>
-                <Input id="imageURL" value={formData.imageURL} onChange={e => setFormData({...formData, imageURL: e.target.value})} />
+                <div className="flex items-center justify-between">
+                  <Label>Foto Produk</Label>
+                  <div className="flex gap-2">
+                    <Input 
+                      type="file" 
+                      id="image-upload-new" 
+                      className="hidden" 
+                      accept="image/*"
+                      onChange={(e) => handleFileUpload(e)}
+                    />
+                    <Button variant="ghost" size="sm" onClick={() => document.getElementById('image-upload-new')?.click()} className="h-7 text-xs">
+                      <Plus className="w-3 h-3 mr-1" />
+                      Unggah Foto
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {formData.imageURLs.map((url, index) => (
+                    <div key={index} className="relative group aspect-square rounded-lg border bg-muted overflow-hidden">
+                      {url ? (
+                        <>
+                          <img src={url} alt="" className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-white hover:text-red-400" onClick={() => removeImageUrl(index)}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <div 
+                          className="flex flex-col items-center justify-center h-full cursor-pointer hover:bg-muted/80"
+                          onClick={() => document.getElementById(`upload-${index}`)?.click()}
+                        >
+                          <Plus className="w-6 h-6 text-muted-foreground" />
+                          <span className="text-[10px] text-muted-foreground mt-1">Klik Unggah</span>
+                          <Input 
+                            type="file" 
+                            id={`upload-${index}`} 
+                            className="hidden" 
+                            accept="image/*"
+                            onChange={(e) => handleFileUpload(e, index)}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {formData.imageURLs.length === 0 && (
+                     <div 
+                        className="flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-muted-foreground/20 cursor-pointer hover:bg-muted/30"
+                        onClick={() => document.getElementById('image-upload-new')?.click()}
+                      >
+                        <ShoppingBag className="w-8 h-8 text-muted-foreground/30 mb-2" />
+                        <span className="text-xs text-muted-foreground">Tambah Foto</span>
+                     </div>
+                  )}
+                </div>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="description">Deskripsi</Label>
@@ -209,7 +305,7 @@ export default function AdminProducts() {
         </Dialog>
       </div>
     </div>
-
+      
     <div className="border rounded-lg overflow-hidden">
         <Table>
           <TableHeader>
@@ -250,7 +346,10 @@ export default function AdminProducts() {
                         purchasePrice: product.purchasePrice || 0,
                         stock: product.stock,
                         description: product.description,
-                        imageURL: product.imageURL
+                        imageURL: product.imageURL,
+                        imageURLs: product.imageURLs && product.imageURLs.length > 0 
+                          ? product.imageURLs 
+                          : [product.imageURL || '']
                       });
                       setIsAddOpen(true);
                     }}>

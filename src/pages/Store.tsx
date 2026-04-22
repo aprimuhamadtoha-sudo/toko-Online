@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Link } from 'react-router-dom';
 import { ShoppingCart, Eye } from 'lucide-react';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 interface Product {
   id: string;
@@ -16,10 +17,12 @@ interface Product {
   purchasePrice: number;
   stock: number;
   imageURL: string;
+  imageURLs?: string[];
   description: string;
 }
 
 export default function Store() {
+  const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [storeSettings, setStoreSettings] = useState({ 
@@ -53,7 +56,7 @@ export default function Store() {
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as Product }));
         setProducts(data.map(p => ({
           ...p,
-          imageURL: (p as any).image_url || p.imageURL,
+          imageURL: p.imageURLs?.[0] || (p as any).image_url || p.imageURL,
           price: Number(p.price)
         })));
       } catch (err) {
@@ -74,7 +77,12 @@ export default function Store() {
       cart.push({ ...product, quantity: 1 });
     }
     localStorage.setItem('cart', JSON.stringify(cart));
-    toast.success(`${product.name} ditambahkan ke keranjang`);
+    toast.success(`${product.name} ditambahkan ke keranjang`, {
+      action: {
+        label: 'Lihat Keranjang',
+        onClick: () => navigate('/cart')
+      }
+    });
   };
 
   if (loading) return <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

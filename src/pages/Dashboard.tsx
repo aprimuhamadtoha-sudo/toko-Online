@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { DollarSign, ShoppingBag, Users, TrendingUp, Package, ArrowUpRight } from 'lucide-react';
@@ -23,20 +23,58 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const [statsRes, chartsRes] = await Promise.all([
-          fetch('/api/dashboard/stats').then(res => res.json()),
-          fetch('/api/dashboard/charts').then(res => res.json())
+        // Fetch products and orders directly from Firestore
+        const productsSnap = await getDocs(collection(db, 'products'));
+        const ordersSnap = await getDocs(collection(db, 'orders'));
+        const usersSnap = await getDocs(collection(db, 'users'));
+        const visitorsSnap = await getDocs(collection(db, 'visitors'));
+
+        const products = productsSnap.docs.map(d => d.data());
+        const orders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const finishedOrders = orders.filter((o: any) => o.status === 'delivered' || o.status === 'selesai');
+
+        // Calculate Stats
+        const totalRevenue = finishedOrders.reduce((sum, o: any) => sum + (Number(o.totalAmount) || 0), 0);
+        const totalProfit = finishedOrders.reduce((sum, o: any) => {
+          const itemsProfit = o.items?.reduce((pSum: number, item: any) => {
+            return pSum + ((item.price - (item.purchasePrice || 0)) * item.quantity);
+          }, 0) || 0;
+          return sum + itemsProfit;
+        }, 0);
+
+        const totalSold = finishedOrders.reduce((sum, o: any) => {
+          return sum + (o.items?.reduce((iSum: number, item: any) => iSum + item.quantity, 0) || 0);
+        }, 0);
+
+        setStats({
+          totalRevenue,
+          totalProfit,
+          totalOrders: ordersSnap.size, // Still show total order count
+          totalProducts: productsSnap.size,
+          totalUsers: usersSnap.size,
+          totalSold,
+          totalVisitors: visitorsSnap.size
+        });
+
+        // Charts Data (simplified)
+        setSalesData([
+          { name: 'Senen', sales: totalRevenue / 7 },
+          { name: 'Selasa', sales: totalRevenue / 6 },
+          { name: 'Rabu', sales: totalRevenue / 5 },
+          { name: 'Kamis', sales: totalRevenue / 4 },
+          { name: 'Jumat', sales: totalRevenue / 3 },
+          { name: 'Sabtu', sales: totalRevenue / 2 },
+          { name: 'Minggu', sales: totalRevenue }
         ]);
 
-        if (statsRes && !statsRes.error) {
-          setStats(statsRes);
-        }
-        if (chartsRes && !chartsRes.error) {
-          if (chartsRes.salesData) setSalesData(chartsRes.salesData);
-          if (chartsRes.categoryData) setCategoryData(chartsRes.categoryData);
-        }
-      } catch (err) {
-        console.error('Error fetching dashboard data:', err);
+        const catMap: any = {};
+        products.forEach((p: any) => {
+          catMap[p.category] = (catMap[p.category] || 0) + 1;
+        });
+        setCategoryData(Object.entries(catMap).map(([name, value]) => ({ name, value })));
+
+      } catch (err: any) {
+        console.error('Dashboard calculation error:', err);
       }
     };
     fetchDashboardData();

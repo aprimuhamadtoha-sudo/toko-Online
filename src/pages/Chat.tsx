@@ -34,7 +34,7 @@ export default function Chat() {
     const fetchAdmin = async () => {
       const q = query(collection(db, 'users'), where('email', '==', OWNER_EMAIL));
       const snap = await getDocs(q);
-      if (!snap.empty) {
+      if (snap && !snap.empty && snap.docs.length > 0) {
         setAdminUid(snap.docs[0].id);
       }
     };
@@ -128,10 +128,10 @@ export default function Chat() {
                 >
                   <Avatar>
                     <AvatarImage src={u.photoURL} />
-                    <AvatarFallback>{u.displayName[0]}</AvatarFallback>
+                    <AvatarFallback>{(u.displayName || u.name || 'U')[0]}</AvatarFallback>
                   </Avatar>
                   <div className="flex-grow overflow-hidden">
-                    <div className="font-medium truncate">{u.displayName}</div>
+                    <div className="font-medium truncate">{u.displayName || u.name || 'User'}</div>
                     <div className="text-xs text-muted-foreground truncate">{u.email}</div>
                   </div>
                 </button>

@@ -12,6 +12,7 @@ export default function ProductDetail() {
   const navigate = useNavigate();
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [activeImage, setActiveImage] = useState(0);
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -19,7 +20,8 @@ export default function ProductDetail() {
       const docRef = doc(db, 'products', id);
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
-        setProduct({ id: docSnap.id, ...docSnap.data() });
+        const data = docSnap.id ? { id: docSnap.id, ...docSnap.data() } : null;
+        setProduct(data);
       }
       setLoading(false);
     };
@@ -35,7 +37,12 @@ export default function ProductDetail() {
       cart.push({ ...product, quantity: 1 });
     }
     localStorage.setItem('cart', JSON.stringify(cart));
-    toast.success(`${product.name} ditambahkan ke keranjang`);
+    toast.success(`${product.name} ditambahkan ke keranjang`, {
+      action: {
+        label: 'Lihat Keranjang',
+        onClick: () => navigate('/cart')
+      }
+    });
   };
 
   if (loading) return <div className="animate-pulse space-y-8">
@@ -52,6 +59,10 @@ export default function ProductDetail() {
 
   if (!product) return <div>Produk tidak ditemukan</div>;
 
+  const images = product.imageURLs && product.imageURLs.length > 0 
+    ? product.imageURLs 
+    : [product.imageURL || `https://picsum.photos/seed/${product.id}/800/800`];
+
   return (
     <div className="space-y-8">
       <Button variant="ghost" onClick={() => navigate(-1)} className="mb-4">
@@ -60,13 +71,28 @@ export default function ProductDetail() {
       </Button>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-        <div className="aspect-square rounded-2xl overflow-hidden bg-muted border shadow-sm">
-          <img 
-            src={product.imageURL || `https://picsum.photos/seed/${product.id}/800/800`} 
-            alt={product.name} 
-            className="w-full h-full object-cover"
-            referrerPolicy="no-referrer"
-          />
+        <div className="space-y-4">
+          <div className="aspect-square rounded-2xl overflow-hidden bg-muted border shadow-sm">
+            <img 
+              src={images[activeImage]} 
+              alt={product.name} 
+              className="w-full h-full object-cover transition-opacity duration-300"
+              referrerPolicy="no-referrer"
+            />
+          </div>
+          {images.length > 1 && (
+            <div className="flex gap-2 p-1 overflow-x-auto">
+              {images.map((img: string, idx: number) => (
+                <button 
+                  key={idx} 
+                  onClick={() => setActiveImage(idx)}
+                  className={`w-20 h-20 rounded-lg border-2 overflow-hidden shrink-0 transition-all ${activeImage === idx ? 'border-primary ring-2 ring-primary/20' : 'border-transparent opacity-70 hover:opacity-100'}`}
+                >
+                  <img src={img} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="space-y-6">
