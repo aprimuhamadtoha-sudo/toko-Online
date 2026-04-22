@@ -133,10 +133,6 @@ export default function Navbar() {
             <LayoutDashboard className="w-4 h-4" />
             Admin Dashboard
           </Link>
-          <Link to="/admin/visitors" className="flex items-center gap-2 text-sm font-medium text-white hover:text-blue-200 transition-colors">
-            <Users className="w-4 h-4" />
-            Pengunjung
-          </Link>
           <Link to="/admin/settings" className="flex items-center gap-2 text-sm font-medium text-white hover:text-blue-200 transition-colors">
             <Package className="w-4 h-4" />
             Pengaturan
