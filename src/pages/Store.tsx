@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, orderBy, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, getDocs, doc, getDoc } from 'firebase/firestore';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +22,28 @@ interface Product {
 export default function Store() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [storeSettings, setStoreSettings] = useState({ 
+    catalogTitle: 'Katalog Produk', 
+    catalogDescription: 'Temukan produk terbaik untuk kebutuhan Anda' 
+  });
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const settingsDoc = await getDoc(doc(db, 'settings', 'store'));
+        if (settingsDoc.exists()) {
+          const data = settingsDoc.data().value;
+          setStoreSettings({
+            catalogTitle: data?.catalogTitle || 'Katalog Produk',
+            catalogDescription: data?.catalogDescription || 'Temukan produk terbaik untuk kebutuhan Anda'
+          });
+        }
+      } catch (err) {
+        console.error('Error fetching settings:', err);
+      }
+    };
+    fetchSettings();
+  }, []);
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -62,8 +84,8 @@ export default function Store() {
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">Katalog Produk</h1>
-        <p className="text-muted-foreground">Temukan produk terbaik untuk kebutuhan Anda</p>
+        <h1 className="text-3xl font-bold tracking-tight">{storeSettings.catalogTitle}</h1>
+        <p className="text-muted-foreground">{storeSettings.catalogDescription}</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

@@ -19,6 +19,7 @@ const fbConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
 const fbConfigValues = JSON.parse(fs.readFileSync(fbConfigPath, "utf-8"));
 
 const firebaseApp = !admin.apps.length ? admin.initializeApp({
+  credential: admin.credential.applicationDefault(),
   projectId: fbConfigValues.projectId,
 }) : admin.apps[0];
 

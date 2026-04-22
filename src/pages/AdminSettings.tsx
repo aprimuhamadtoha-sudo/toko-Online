@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc, onSnapshot } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,53 +12,58 @@ import { Trash2, ShieldCheck, UserPlus } from 'lucide-react';
 const OWNER_EMAIL = 'aprimuhamadtoha@gmail.com';
 
 export default function AdminSettings() {
-  const [settings, setSettings] = useState({ name: 'Jasa Las', address: '', logoURL: '' });
+  const [settings, setSettings] = useState({ 
+    name: 'Jasa Las', 
+    address: '', 
+    logoURL: '',
+    catalogTitle: 'Katalog Produk',
+    catalogDescription: 'Temukan produk terbaik untuk kebutuhan Anda'
+  });
   const [admins, setAdmins] = useState<{uid: string, email: string, displayName: string}[]>([]);
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Parallel fetching to improve speed
-        const [settingsData, usersData] = await Promise.all([
-          fetch('/api/settings/store').then(res => res.json()),
-          fetch('/api/users').then(res => res.json()) // I need to add /api/users listing to server.ts
-        ]);
-
-        if (settingsData) {
-          setSettings(settingsData);
-        }
-
-        if (usersData && Array.isArray(usersData)) {
-          const adminList = usersData
-            .filter((u: any) => u.role === 'admin' && u.email.toLowerCase() !== OWNER_EMAIL)
-            .map((u: any) => ({
-              uid: u.id,
-              email: u.email,
-              displayName: u.display_name || 'Admin'
-            }));
-          setAdmins(adminList);
-        }
-      } catch (error) {
-        console.error('Error fetching admin data:', error);
-        toast.error('Gagal memuat data pengaturan');
-      } finally {
-        setLoading(false);
+    // Fetch settings from Firestore
+    const unsubSettings = onSnapshot(doc(db, 'settings', 'store'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data().value;
+        setSettings(prev => ({
+          ...prev,
+          ...data
+        }));
       }
+    });
+
+    // Fetch admins
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const adminList = usersData
+        .filter((u: any) => u.role === 'admin' && u.email?.toLowerCase() !== OWNER_EMAIL)
+        .map((u: any) => ({
+          uid: u.id,
+          email: u.email,
+          displayName: u.name || u.display_name || 'Admin'
+        }));
+      setAdmins(adminList);
+      setLoading(false);
+    }, (err) => {
+      console.error('Error fetching admins:', err);
+      setLoading(false);
+    });
+
+    return () => {
+      unsubSettings();
+      unsubUsers();
     };
-    fetchData();
   }, []);
 
   const handleSaveSettings = async () => {
     try {
-      await fetch('/api/settings/store', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
-      });
+      await setDoc(doc(db, 'settings', 'store'), { value: settings }, { merge: true });
       toast.success('Pengaturan toko diperbarui');
     } catch (error) {
+      console.error('Error saving settings:', error);
       toast.error('Gagal memperbarui pengaturan');
     }
   };
@@ -163,7 +168,35 @@ export default function AdminSettings() {
               <Label>URL Logo</Label>
               <Input value={settings.logoURL} onChange={e => setSettings({...settings, logoURL: e.target.value})} />
             </div>
-            <Button onClick={handleSaveSettings} className="w-full">Simpan Perubahan</Button>
+            <Button onClick={handleSaveSettings} className="w-full">Simpan Identitas</Button>
+          </CardContent>
+        </Card>
+
+        {/* Catalog Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Pengaturan Katalog</CardTitle>
+            <CardDescription>Ubah tampilan halaman katalog produk</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Judul Katalog</Label>
+              <Input 
+                value={settings.catalogTitle} 
+                onChange={e => setSettings({...settings, catalogTitle: e.target.value})} 
+                placeholder="Contoh: Katalog Produk Kami"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Deskripsi Katalog</Label>
+              <textarea 
+                className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                value={settings.catalogDescription} 
+                onChange={e => setSettings({...settings, catalogDescription: e.target.value})} 
+                placeholder="Contoh: Temukan berbagai produk berkualitas dari kami..."
+              />
+            </div>
+            <Button onClick={handleSaveSettings} className="w-full">Simpan Katalog</Button>
           </CardContent>
         </Card>
 

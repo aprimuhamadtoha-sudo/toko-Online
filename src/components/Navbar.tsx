@@ -157,10 +157,12 @@ export default function Navbar() {
               {storeSettings.name.charAt(0)}
             </div>
           )}
-          <div className="flex flex-col leading-tight">
-            <span className="text-xl font-bold tracking-tighter">{storeSettings.name}</span>
+          <div className="flex flex-col -space-y-0.5">
+            <span className="text-lg font-bold tracking-tight">{storeSettings.name}</span>
             {storeSettings.address && (
-              <span className="text-[10px] font-medium opacity-80 line-clamp-1 max-w-[200px]">{storeSettings.address}</span>
+              <span className="text-[11px] font-medium opacity-90 line-clamp-1 max-w-[150px] md:max-w-[300px]">
+                {storeSettings.address}
+              </span>
             )}
           </div>
         </Link>

@@ -20,20 +20,25 @@ export default function AdminVisitors() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchVisitors = async () => {
-      setLoading(true);
-      try {
-        const response = await fetch('/api/visitors');
-        const data = await response.json();
-        setVisitors(data);
-      } catch (error) {
-        console.error('Error fetching visitors:', error);
-        toast.error('Gagal mengambil data pengunjung');
-      } finally {
-        setLoading(false);
+    const q = query(collection(db, 'visitors'), orderBy('lastSeen', 'desc'));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      })) as Visitor[];
+      setVisitors(data);
+      setLoading(false);
+    }, (err) => {
+      console.error('Error syncing visitors:', err);
+      // Fallback to non-ordered if index is missing
+      if (err.message.includes('requires an index')) {
+        onSnapshot(collection(db, 'visitors'), (snap) => {
+          setVisitors(snap.docs.map(d => ({ id: d.id, ...d.data() } as Visitor)));
+          setLoading(false);
+        });
       }
-    };
-    fetchVisitors();
+    });
+    return () => unsub();
   }, []);
 
   return (
@@ -41,7 +46,7 @@ export default function AdminVisitors() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Log Pengunjung</h1>
-          <p className="text-muted-foreground">Daftar pengguna yang telah mengakses toko ini (Data dari PostgreSQL)</p>
+          <p className="text-muted-foreground">Daftar pengguna yang telah mengakses toko ini secara real-time</p>
         </div>
       </div>
 

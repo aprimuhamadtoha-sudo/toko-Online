@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, writeBatch, query, orderBy } from 'firebase/firestore';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,53 +38,48 @@ export default function AdminProducts() {
   });
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const response = await fetch('/api/products');
-        const data = await response.json();
-        setProducts(data.map((p: any) => ({
-          ...p,
-          imageURL: p.image_url,
-          purchasePrice: Number(p.purchase_price)
-        })));
-      } catch (err) {
-        console.error('Error fetching products:', err);
-      }
-    };
-    fetchProducts();
-    // In a real app we might use websockets or polling, but for now we'll just fetch once or refresh
+    const unsub = onSnapshot(collection(db, 'products'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      })) as Product[];
+      
+      // Sort in memory to be resilient to missing fields
+      const sortedData = data.sort((a, b) => {
+        const dateA = (a as any).createdAt?.seconds ? (a as any).createdAt.toDate() : new Date((a as any).createdAt || 0);
+        const dateB = (b as any).createdAt?.seconds ? (b as any).createdAt.toDate() : new Date((b as any).createdAt || 0);
+        return dateB.getTime() - dateA.getTime();
+      });
+
+      setProducts(sortedData.map(p => ({
+        ...p,
+        imageURL: (p as any).image_url || p.imageURL,
+        purchasePrice: Number((p as any).purchasePrice || (p as any).purchase_price || 0)
+      })));
+    });
+    return () => unsub();
   }, []);
 
   const handleSave = async () => {
     try {
+      const productData = {
+        ...formData,
+        updatedAt: serverTimestamp(),
+      };
+
       if (editingProduct) {
-        const response = await fetch(`/api/products/${editingProduct.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData)
-        });
-        if (!response.ok) throw new Error('Failed to update product');
+        await updateDoc(doc(db, 'products', editingProduct.id), productData);
         toast.success('Produk diperbarui');
         setSuccessMessage('Produk berhasil diperbarui!');
       } else {
-        const response = await fetch('/api/products', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData)
+        await addDoc(collection(db, 'products'), {
+          ...productData,
+          sold: 0,
+          createdAt: serverTimestamp(),
         });
-        if (!response.ok) throw new Error('Failed to add product');
         toast.success('Produk ditambahkan');
         setSuccessMessage('Produk berhasil ditambahkan ke katalog!');
       }
-      
-      // Refresh list
-      const res = await fetch('/api/products');
-      const data = await res.json();
-      setProducts(data.map((p: any) => ({
-        ...p,
-        imageURL: p.image_url,
-        purchasePrice: Number(p.purchase_price)
-      })));
 
       setIsAddOpen(false);
       setIsSuccessOpen(true);
@@ -92,15 +87,14 @@ export default function AdminProducts() {
       setFormData({ name: '', category: '', price: 0, purchasePrice: 0, stock: 0, description: '', imageURL: '' });
     } catch (error) {
       console.error('Error saving product:', error);
-      toast.error('Gagal menyimpan produk: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      toast.error('Gagal menyimpan produk');
     }
   };
 
   const handleDelete = async (id: string) => {
     if (confirm('Hapus produk ini?')) {
       try {
-        await fetch(`/api/products/${id}`, { method: 'DELETE' });
-        setProducts(products.filter(p => p.id !== id));
+        await deleteDoc(doc(db, 'products', id));
         toast.success('Produk dihapus');
       } catch (error) {
         toast.error('Gagal menghapus produk');
